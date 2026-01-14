@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { api, API_BASE } from '../../lib/api';
 import { useToast } from '../../store/toast';
 
-const ASSET_BASE = API_BASE.replace(/\/public$/, '');
+const ASSET_BASE = API_BASE.endsWith('/public') ? API_BASE.replace(/\/public$/, '') : `${API_BASE}/api`;
 
 const INITIAL_STATE = {
   id: null,

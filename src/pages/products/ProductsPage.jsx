@@ -4,7 +4,7 @@ import { downloadCSV } from '../../lib/csv';
 import { useToast } from '../../store/toast';
 import ProductVariantsManager from '../../components/ProductVariantsManager';
 
-const ASSET_BASE = API_BASE.replace(/\/public$/, '');
+const ASSET_BASE = API_BASE.endsWith('/public') ? API_BASE.replace(/\/public$/, '') : `${API_BASE}/api`;
 
 // Initial state for forms to avoid repetition
 const INITIAL_FORM_STATE = {
@@ -293,9 +293,13 @@ export default function ProductsPage() {
         p++;
       }
       downloadCSV('products.csv', rows, [
-        { header: 'ID', key: 'id' }, { header: 'Name', key: 'name' },
-        { header: 'Brand', key: 'brand_name' }, { header: 'Category', key: 'category_name' },
-        { header: 'Base Price', key: 'base_price' }, { header: 'Active', key: 'is_active' }
+        { header: 'ID', key: 'id' }, 
+        { header: 'Name', key: 'name' },
+        { header: 'Brand', key: 'brand_name' },
+        { header: 'Base Price', key: 'base_price' },
+        { header: 'Purchase Price', key: 'purchase_price' },
+        { header: 'Total Stock', key: 'total_stock' },
+        { header: 'Active', key: 'is_active' }
       ]);
     } catch (e) { add(e.message, 'error'); }
   }
@@ -355,7 +359,8 @@ export default function ProductsPage() {
                   <th className="px-4 py-3 text-left w-16">Image</th>
                   <th className="px-4 py-3 text-left">Product Name</th>
                   <th className="px-4 py-3 text-left">Price</th>
-                  <th className="px-4 py-3 text-left">Category</th>
+                  <th className="px-4 py-3 text-left">Purchase</th>
+                  <th className="px-4 py-3 text-left">Total Stock</th>
                   <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-right">Actions</th>
                 </tr>
@@ -380,7 +385,8 @@ export default function ProductsPage() {
                       </div>
                     </td>
                     <td className="px-4 py-3 font-semibold">{Number(p.base_price).toLocaleString()}</td>
-                    <td className="px-4 py-3 text-gray-500">{p.category_name || '-'}</td>
+                    <td className="px-4 py-3 font-medium text-gray-700">{Number(p.purchase_price).toLocaleString()}</td>
+                    <td className="px-4 py-3 font-mono">{Number(p.total_stock || 0).toLocaleString()}</td>
                     <td className="px-4 py-3">
                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${p.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                             {p.is_active ? 'Active' : 'Inactive'}

@@ -1,4 +1,8 @@
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost/medlan-backend/public';
+const MODE = import.meta.env.MODE;
+const ENV_BASE = (import.meta.env.VITE_API_BASE_URL || '').trim();
+const ORIGIN = typeof window !== 'undefined' ? window.location.origin : '';
+const IS_LOCAL = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(ORIGIN);
+const BASE_URL = ENV_BASE || (IS_LOCAL ? 'http://localhost/medlan-backend/public' : ORIGIN);
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE_URL}${path}`, {

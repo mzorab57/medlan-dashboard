@@ -35,16 +35,17 @@ export default function DashboardLayout() {
           <Link to="/brands" className="block px-3 py-2 rounded hover:bg-gray-800" onClick={() => setMobileOpen(false)}>Brands</Link>
           <Link to="/meta/colors-sizes" className="block px-3 py-2 rounded hover:bg-gray-800" onClick={() => setMobileOpen(false)}>Colors & Sizes</Link>
           <Link to="/orders" className="block px-3 py-2 rounded hover:bg-gray-800" onClick={() => setMobileOpen(false)}>Orders</Link>
-          {user?.role === 'admin' && (
+          {(user?.role === 'admin') && (
             <>
               <Link to="/promotions" className="block px-3 py-2 rounded hover:bg-gray-800" onClick={() => setMobileOpen(false)}>Promotions</Link>
               <Link to="/users" className="block px-3 py-2 rounded hover:bg-gray-800" onClick={() => setMobileOpen(false)}>Users</Link>
               <div className="text-xs uppercase text-gray-400 px-3 mt-4">Reports</div>
               <Link to="/reports/sales" className="block px-3 py-2 rounded hover:bg-gray-800" onClick={() => setMobileOpen(false)}>Sales Report</Link>
+              <Link to="/expenses" className="block px-3 py-2 rounded hover:bg-gray-800" onClick={() => setMobileOpen(false)}>Expenses</Link>
             </>
           )}
           <Link to="/feedback" className="block px-3 py-2 rounded hover:bg-gray-800" onClick={() => setMobileOpen(false)}>Feedback</Link>
-          {user?.role === 'admin' && (
+          {(user?.role === 'admin' || user?.role === 'employee') && (
             <Link to="/stock" className="block px-3 py-2 rounded hover:bg-gray-800" onClick={() => setMobileOpen(false)}>Stock</Link>
           )}
         </nav>

@@ -1,9 +1,11 @@
 import { useEffect, useState, useRef, useMemo } from 'react';
 import { api } from '../../lib/api';
 import { useToast } from '../../store/toast';
+import { useAuth } from '../../store/auth';
 
 export default function StockPage() {
   const { add } = useToast();
+  const { user } = useAuth();
   
   // States
   const [loading, setLoading] = useState(false);
@@ -165,6 +167,30 @@ export default function StockPage() {
   // Render Helpers
   const getColorName = (id) => colors.find(c => String(c.id) === String(id))?.name || '-';
   const getSizeName = (id) => sizes.find(s => String(s.id) === String(id))?.name || '-';
+  
+  const totalStock = useMemo(() => {
+    return specOptions.reduce((sum, s) => sum + Number(s.stock ?? s.quantity_in_stock ?? 0), 0);
+  }, [specOptions]);
+  const colorTotals = useMemo(() => {
+    const map = {};
+    specOptions.forEach((s) => {
+      const cid = s.color_id;
+      if (!cid) return;
+      const qty = Number(s.stock ?? s.quantity_in_stock ?? 0);
+      map[cid] = (map[cid] || 0) + qty;
+    });
+    return Object.entries(map).map(([id, total]) => ({ id, total }));
+  }, [specOptions]);
+  const sizeTotals = useMemo(() => {
+    const map = {};
+    specOptions.forEach((s) => {
+      const sid = s.size_id;
+      if (!sid) return;
+      const qty = Number(s.stock ?? s.quantity_in_stock ?? 0);
+      map[sid] = (map[sid] || 0) + qty;
+    });
+    return Object.entries(map).map(([id, total]) => ({ id, total }));
+  }, [specOptions]);
 
   return (
     <div className="space-y-6">
@@ -222,15 +248,46 @@ export default function StockPage() {
                 </select>
             </div>
         </div>
+        {selectedProduct && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-gray-500">Total Stock</div>
+              <div className="text-xl font-semibold text-blue-600">{totalStock}</div>
+              <div className="text-xs text-gray-500 mt-1">Product: {selectedProduct?.name}</div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-gray-500 mb-2">By Color</div>
+              <ul className="text-sm space-y-1">
+                {colorTotals.length ? colorTotals.map((ct) => (
+                  <li key={ct.id} className="flex justify-between">
+                    <span>{getColorName(ct.id)}</span>
+                    <span className="font-mono">{ct.total}</span>
+                  </li>
+                )) : <li className="text-gray-400">—</li>}
+              </ul>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-gray-500 mb-2">By Size</div>
+              <ul className="text-sm space-y-1">
+                {sizeTotals.length ? sizeTotals.map((st) => (
+                  <li key={st.id} className="flex justify-between">
+                    <span>{getSizeName(st.id)}</span>
+                    <span className="font-mono">{st.total}</span>
+                  </li>
+                )) : <li className="text-gray-400">—</li>}
+              </ul>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ADJUSTMENT SECTION */}
-      {specId && (
+      {specId && user?.role === 'admin' && (
           <div className="rounded-xl border bg-white p-5 shadow-sm">
             <h3 className="text-sm font-bold text-gray-700 mb-3">Adjust Stock for: <span className="text-blue-600">{selectedProduct?.name}</span></h3>
             <form onSubmit={adjust} className="flex flex-col sm:flex-row gap-3 items-end">
-                <div className="flex-1 w-full">
-                    <label className="text-xs text-gray-500 mb-1 block">Quantity (+ Add / - Remove)</label>
+              <div className="flex-1 w-full">
+                <label className="text-xs text-gray-500 mb-1 block">Quantity (+ Add / - Remove)</label>
                     <input 
                         type="number" 
                         className="w-full rounded-md border px-3 py-2" 

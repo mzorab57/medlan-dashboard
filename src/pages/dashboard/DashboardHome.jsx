@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
-import { Link } from 'react-router-dom';
+// import { Link } from 'react-router-dom';
 import RevenueChart from '../../components/charts/RevenueChart';
 import TopProductsChart from '../../components/charts/TopProductsChart';
 import OrdersStatusChart from '../../components/charts/OrdersStatusChart';
@@ -15,7 +15,7 @@ export default function DashboardHome() {
   const [topProducts, setTopProducts] = useState([]);
   const [ordersRecent, setOrdersRecent] = useState([]);
   const [statusDist, setStatusDist] = useState([]);
-  const [profitTotal, setProfitTotal] = useState(null);
+  // const [profitTotal, setProfitTotal] = useState(null);
   const [usdRate, setUsdRate] = useState(() => {
     try {
       const v = localStorage.getItem('usd_rate');
@@ -31,6 +31,7 @@ export default function DashboardHome() {
   });
   const [to, setTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [revRange, setRevRange] = useState('1d');
+  const [expRange, setExpRange] = useState('1d');
   function setDefaultDateRange() {
     const t = new Date();
     const f = new Date();
@@ -64,12 +65,7 @@ export default function DashboardHome() {
           const dist = Object.entries(counter).map(([status, count]) => ({ status, count }));
           setStatusDist(dist);
         }
-        if (mounted && user?.role === 'admin') {
-          try {
-            const tp2 = await api.get('/api/dashboard/total-profit');
-            setProfitTotal(tp2.total_profit ?? tp2.total ?? 0);
-          } catch { /* ignore */ }
-        }
+        // total-profit card removed; see net profit below
       } catch (e) {
         setError(e.message);
       } finally {
@@ -187,17 +183,34 @@ export default function DashboardHome() {
             return v != null ? <div className="text-xs text-gray-500">{formatUSD(v)}</div> : null;
           })()}
         </div>
-        {user?.role === 'admin' && (
-          <div className="rounded-xl border bg-white p-4 hover:shadow-sm transition">
-            <div className="inline-block text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700">Total Profit</div>
-            <div className="mt-2 text-2xl font-semibold break-words text-emerald-700">{profitTotal != null ? formatCurrency(profitTotal) : '—'}</div>
-            {profitTotal != null && (
-              <div className="text-xs text-gray-500">{formatUSD(profitTotal)}</div>
-            )}
+        <div className="rounded-xl border bg-white p-4 hover:shadow-sm transition">
+          <div className="flex items-center justify-between">
+            <div className="inline-block text-xs px-2 py-1 rounded bg-red-100 text-red-700">Expenses</div>
+            <div className="flex gap-1">
+              {['1d','7d','30d'].map((r) => (
+                <button
+                  key={r}
+                  className={`text-xs px-2 py-1 rounded border ${expRange === r ? 'bg-red-100  text-red-700' : 'bg-white hover:bg-gray-50'}`}
+                  onClick={() => setExpRange(r)}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
           </div>
-        )}
+          <div className="mt-2 text-2xl font-semibold break-words text-red-700">
+            {(() => {
+              const v = expRange === '1d' ? summary?.expenses_today : expRange === '7d' ? summary?.expenses_7d : summary?.expenses_30d;
+              return v != null ? formatCurrency(v) : '—';
+            })()}
+          </div>
+          {(() => {
+            const v = expRange === '1d' ? summary?.expenses_today : expRange === '7d' ? summary?.expenses_7d : summary?.expenses_30d;
+            return v != null ? <div className="text-xs text-gray-500">{formatUSD(v)}</div> : null;
+          })()}
+        </div>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="rounded-xl border bg-white p-4">
           <div className="">
             <div className="flex flex-wrap gap-2 ">
@@ -247,6 +260,33 @@ export default function DashboardHome() {
         </div>
         <OrdersStatusChart data={statusDist} />
       </div>
+      {user?.role === 'admin' && (
+        <div className="rounded-xl border bg-white p-4 hover:shadow-sm transition">
+          <div className="flex items-center justify-between">
+            <div className="inline-block text-xs px-2 py-1 rounded bg-emerald-100 text-emerald-700">Net Profit</div>
+            <div className="flex gap-1">
+              {['1d','7d','30d'].map((r) => (
+                <span key={r} className="text-[11px] px-2 py-1 rounded bg-gray-100 text-gray-700">{r}</span>
+              ))}
+            </div>
+          </div>
+          <div className="mt-2 text-2xl font-semibold break-words text-emerald-700">
+            {(() => {
+              return revRange === '1d'
+                ? formatCurrency(summary?.net_profit_today)
+                : revRange === '7d'
+                ? formatCurrency(summary?.net_profit_7d)
+                : formatCurrency(summary?.net_profit_30d);
+            })()}
+          </div>
+          <div className="text-xs text-gray-500">
+            {(() => {
+              const v = revRange === '1d' ? summary?.net_profit_today : revRange === '7d' ? summary?.net_profit_7d : summary?.net_profit_30d;
+              return v != null ? formatUSD(v) : '';
+            })()}
+          </div>
+        </div>
+      )}
       <RevenueChart data={revenue} />
       <TopProductsChart data={topProducts} />
       <div className="rounded-xl border bg-white p-4">
