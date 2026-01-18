@@ -15,7 +15,7 @@ export default function DashboardLayout() {
         />
       )}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 text-white p-4 transform transition-transform lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:block`}
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-gray-900 text-white p-4 transform transition-transform lg:sticky overflow-y-auto lg:top-0 lg:h-screen lg:translate-x-0 ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:block`}
       >
         <div className="flex items-center justify-between mb-6">
           <div className="text-xl font-semibold">Medlan Admin</div>

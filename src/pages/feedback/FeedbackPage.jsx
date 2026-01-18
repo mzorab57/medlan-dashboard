@@ -114,6 +114,11 @@ export default function FeedbackPage() {
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Product Feedback</h2>
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       {/* SECTION 1: SEARCH */}
       <div className="rounded-xl border bg-white p-5 shadow-sm">

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { api, API_BASE } from '../../lib/api';
 import { downloadCSV } from '../../lib/csv';
 import { useToast } from '../../store/toast';
@@ -29,11 +29,11 @@ export default function ProductsPage() {
   
   // --- Filter States ---
   const [page, setPage] = useState(1);
-  const [per, setPer] = useState(20);
+  const [per] = useState(20);
   const [search, setSearch] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [subcategoryId, setSubcategoryId] = useState('');
-  const [brandId, setBrandId] = useState('');
+  const [brandId] = useState('');
   const [featuredOnly, setFeaturedOnly] = useState(false);
 
   // --- Dropdown Data States ---

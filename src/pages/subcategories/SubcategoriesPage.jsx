@@ -207,7 +207,7 @@ export default function SubcategoriesPage() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {items.map((s, i) => (
+                {items.map((s) => (
                   <tr key={s.id} className="hover:bg-blue-50 transition group">
                     <td className="px-4 py-2">
                         <div className="h-10 w-10 rounded border bg-gray-50 flex items-center justify-center overflow-hidden">

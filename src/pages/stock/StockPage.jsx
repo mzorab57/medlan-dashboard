@@ -222,6 +222,7 @@ export default function StockPage() {
                         ))}
                     </div>
                 )}
+                {productLoading && <div className="absolute right-3 top-9 text-xs text-gray-400">Loading...</div>}
             </div>
 
            

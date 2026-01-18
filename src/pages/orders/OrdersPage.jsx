@@ -1,10 +1,25 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { api } from '../../lib/api';
+import { useEffect, useState, useCallback } from 'react';
+import { api, API_BASE } from '../../lib/api';
 import { downloadCSV } from '../../lib/csv';
 import { useToast } from '../../store/toast';
 import { STATUSES, normalizeStatus, canTransition, isLocked, statusBgClass } from '../../lib/status';
 
 const SOURCES = ['', 'website', 'whatsapp', 'instagram'];
+const ASSET_BASE = API_BASE.endsWith('/public') ? API_BASE.replace(/\/public$/, '') : `${API_BASE}/api`;
+function assetUrl(p) {
+  const raw = String(p || '').trim();
+  if (!raw) return '';
+  if (/^(https?:)?\/\//i.test(raw) || /^data:/i.test(raw)) return raw;
+  const rel = raw.replace(/^\/+/, '');
+  return `${ASSET_BASE}/${rel}`;
+}
+
+ 
+const DELIVERY_FREE_THRESHOLD = 35000;
+
+function stripMetaFromAddress(address) {
+  return String(address || '').replace(/\s*\[medlan:[a-z_]+=[^\]]+\]\s*/gi, ' ').replace(/\s+/g, ' ').trim();
+}
 
 export default function OrdersPage() {
   const { add } = useToast();
@@ -24,11 +39,18 @@ export default function OrdersPage() {
   const [viewData, setViewData] = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
   const [updateStatusMap, setUpdateStatusMap] = useState({});
+  const [imagePreview, setImagePreview] = useState('');
 
   // --- Create State ---
   const [createOpen, setCreateOpen] = useState(false);
   const [createData, setCreateData] = useState({
-    customer_name: '', phone_number: '', address: '', order_source: 'whatsapp', items: []
+    customer_name: '',
+    phone_number: '',
+    address: '',
+    order_source: 'whatsapp',
+    items: [],
+    delivery_city_id: '',
+    delivery_paid_by: 'medlan'
   });
   
   // --- Search & Specs State ---
@@ -39,6 +61,11 @@ export default function OrdersPage() {
   
   // --- Stats State ---
   const [summary, setSummary] = useState({ website: 0, whatsapp: 0, instagram: 0, other: 0, total: 0 });
+  const [deliverySettingsOpen, setDeliverySettingsOpen] = useState(false);
+  const [deliveryCities, setDeliveryCities] = useState([]);
+  const [deliveryCitiesLoading, setDeliveryCitiesLoading] = useState(false);
+  const [deliveryCitiesApiMissing, setDeliveryCitiesApiMissing] = useState(false);
+  const [newCity, setNewCity] = useState({ city_key: '', name: '', fee: '', is_active: 1 });
 
   // 1. Fetch Orders List
   const fetchList = useCallback(async () => {
@@ -63,6 +90,30 @@ export default function OrdersPage() {
   useEffect(() => {
     fetchList();
   }, [fetchList]);
+
+  const fetchDeliveryCities = useCallback(async () => {
+    setDeliveryCitiesLoading(true);
+    try {
+      const res = await api.get('/api/delivery-cities');
+      const list = res?.data || res || [];
+      setDeliveryCities(Array.isArray(list) ? list : []);
+      setDeliveryCitiesApiMissing(false);
+    } catch (e) {
+      if (e?.status === 404) {
+        setDeliveryCitiesApiMissing(true);
+        add('Endpoint /api/delivery-cities not found. Update backend routes/controller.', 'error');
+      } else {
+        add(e.message, 'error');
+      }
+      setDeliveryCities([]);
+    } finally {
+      setDeliveryCitiesLoading(false);
+    }
+  }, [add]);
+
+  useEffect(() => {
+    fetchDeliveryCities();
+  }, [fetchDeliveryCities]);
 
   // 2. Optimized Summary Fetcher (Better to move to Backend)
   // This still fetches pages but we keep it separated to not block UI
@@ -108,6 +159,7 @@ export default function OrdersPage() {
 
       // Optimization: Instead of looping ALL products, only fetch specific products referenced in items
       const uniqueProductIds = [...new Set(orderItems.map(it => it.product_id).filter(Boolean))];
+      const uniqueSpecIds = [...new Set(orderItems.map(it => it.product_spec_id).filter(Boolean))];
       
       // Fetch details only for relevant products in parallel
       const productDetails = await Promise.all(
@@ -134,6 +186,21 @@ export default function OrdersPage() {
           }
       });
 
+      const specImages = await Promise.all(
+        uniqueSpecIds.map(sid => api.get(`/api/specs/${sid}/images`).catch(() => null))
+      );
+      const specImageMap = {};
+      uniqueSpecIds.forEach((sid, index) => {
+        const r = specImages[index];
+        const list = r ? (r.data || r) : [];
+        const arr = Array.isArray(list) ? list : [];
+        const primary = arr.find(x => Number(x.is_primary) === 1) || arr[0];
+        if (primary) {
+          const img = primary.image || primary.path || primary.url || primary.image_url;
+          if (img) specImageMap[sid] = img;
+        }
+      });
+
       // Enrich items
       orderItems = orderItems.map(it => {
           const pid = it.product_id;
@@ -148,11 +215,12 @@ export default function OrdersPage() {
                       product_name: it.product_name || productNameMap[pid] || it.product_name,
                       size_name: it.size_name || matchedSpec.size_name || matchedSpec.size,
                       color_name: it.color_name || matchedSpec.color_name || matchedSpec.color,
+                      variant_image: it.variant_image || specImageMap[sid] || matchedSpec.image || matchedSpec.primary_image,
                       // assuming product name might be in the parent object in your API, otherwise fetch product details
                   };
               }
           }
-          return { ...it, product_name: it.product_name || productNameMap[pid] || it.product_name };
+          return { ...it, product_name: it.product_name || productNameMap[pid] || it.product_name, variant_image: it.variant_image || specImageMap[sid] };
       });
 
       setViewData({ ...orderData, items: orderItems });
@@ -187,7 +255,7 @@ export default function OrdersPage() {
           setSelectedProduct({ ...prod, specs });
           setSpecSearch(prod.name); // Set input to name
           setSpecResults([]); // Hide dropdown
-      } catch (e) {
+      } catch {
           add('Failed to load product specs', 'error');
       }
   }
@@ -254,21 +322,90 @@ export default function OrdersPage() {
   async function submitOrder(e) {
       e.preventDefault();
       try {
+          const cartTotal = createData.items.reduce((sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0), 0);
+          const isWebsite = String(createData.order_source || '').toLowerCase() === 'website';
+          const canToggle = !isWebsite && cartTotal >= DELIVERY_FREE_THRESHOLD;
+          const paidBy = cartTotal < DELIVERY_FREE_THRESHOLD ? 'client' : (canToggle ? createData.delivery_paid_by : 'medlan');
+          const cityId = createData.delivery_city_id ? Number(createData.delivery_city_id) : null;
+          if (paidBy === 'medlan' && !cityId) {
+              add('Select delivery city', 'error');
+              return;
+          }
           const payload = {
               customer_name: createData.customer_name,
               phone_number: createData.phone_number,
-              address: createData.address,
+              address: stripMetaFromAddress(createData.address),
               order_source: normalizeSource(createData.order_source),
-              items: createData.items.map(i => ({ product_spec_id: i.product_spec_id, quantity: i.quantity }))
+              items: createData.items.map(i => ({ product_spec_id: i.product_spec_id, quantity: i.quantity })),
+              delivery_city_id: cityId || undefined,
+              delivery_paid_by: canToggle ? paidBy : undefined,
           };
           await api.post('/api/orders', payload);
           add('Order created successfully', 'success');
           setCreateOpen(false);
-          setCreateData({ customer_name: '', phone_number: '', address: '', order_source: 'whatsapp', items: [] });
+          setCreateData({
+            customer_name: '',
+            phone_number: '',
+            address: '',
+            order_source: 'whatsapp',
+            items: [],
+            delivery_city_id: '',
+            delivery_paid_by: 'medlan',
+          });
           fetchList();
       } catch(e) {
           add(e.message, 'error');
       }
+  }
+
+  async function createDeliveryCity() {
+    if (deliveryCitiesApiMissing) {
+      add('Backend not updated: /api/delivery-cities missing', 'error');
+      return;
+    }
+    try {
+      const payload = {
+        city_key: String(newCity.city_key || '').trim(),
+        name: String(newCity.name || '').trim(),
+        fee: Number(newCity.fee || 0),
+        is_active: Number(newCity.is_active),
+      };
+      if (!payload.city_key || !payload.name) { add('city_key and name required', 'error'); return; }
+      await api.post('/api/delivery-cities', payload);
+      add('City created', 'success');
+      setNewCity({ city_key: '', name: '', fee: '', is_active: 1 });
+      fetchDeliveryCities();
+    } catch (e) {
+      add(e.message, 'error');
+    }
+  }
+
+  async function updateDeliveryCity(id, patch) {
+    if (deliveryCitiesApiMissing) {
+      add('Backend not updated: /api/delivery-cities missing', 'error');
+      return;
+    }
+    try {
+      await api.patch(`/api/delivery-cities?id=${id}`, patch);
+      add('City updated', 'success');
+      fetchDeliveryCities();
+    } catch (e) {
+      add(e.message, 'error');
+    }
+  }
+
+  async function deleteDeliveryCity(id) {
+    if (deliveryCitiesApiMissing) {
+      add('Backend not updated: /api/delivery-cities missing', 'error');
+      return;
+    }
+    try {
+      await api.del(`/api/delivery-cities?id=${id}`);
+      add('City deleted', 'success');
+      fetchDeliveryCities();
+    } catch (e) {
+      add(e.message, 'error');
+    }
   }
   
   // CSV Export
@@ -300,10 +437,20 @@ export default function OrdersPage() {
       {/* HEADER */}
       <div className="flex  items-center justify-between gap-4">
         <h2 className="text-2xl font-semibold">Orders</h2>
-        <button onClick={() => setCreateOpen(true)} className="w-fit sm:w-auto rounded-md bg-blue-600 text-white px-4 py-2 hover:bg-blue-700 shadow-sm">
-          + Create Order
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setDeliverySettingsOpen(true)} className="w-fit sm:w-auto rounded-md border bg-white px-4 py-2 hover:bg-gray-50 shadow-sm">
+            Delivery Settings
+          </button>
+          <button onClick={() => setCreateOpen(true)} className="w-fit sm:w-auto rounded-md bg-blue-600 text-white px-4 py-2 hover:bg-blue-700 shadow-sm">
+            + Create Order
+          </button>
+        </div>
       </div>
+      {error ? (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      ) : null}
 
       {/* SUMMARY CARDS (Compact) */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -425,9 +572,39 @@ export default function OrdersPage() {
                             </div>
                             <div className="p-3 bg-gray-50 rounded border">
                                 <div className="text-gray-500 text-xs uppercase">Shipping</div>
-                                <div>{viewData.order?.address || 'No address provided'}</div>
+                                <div>{stripMetaFromAddress(viewData.order?.address) || 'No address provided'}</div>
                                 <div className={`mt-1 inline-block px-2 py-0.5 rounded text-xs ${statusBgClass(viewData.order?.status)}`}>{viewData.order?.status}</div>
                             </div>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+                          {(() => {
+                            const o = viewData.order || {};
+                            const cityId = o.delivery_city_id != null ? Number(o.delivery_city_id) : null;
+                            const address = String(o.address || '').toLowerCase();
+                            const byId = cityId ? deliveryCities.find(c => Number(c.id) === cityId) : null;
+                            const inferred = deliveryCities.find(c => address.includes(String(c.city_key || '').toLowerCase()) || address.includes(String(c.name || '').toLowerCase()));
+                            const cityName = o.delivery_city_name || byId?.name || inferred?.name || '';
+                            const paidBy = String(o.delivery_paid_by || '').toLowerCase() || (Number(o.total_price || 0) >= DELIVERY_FREE_THRESHOLD ? 'medlan' : 'client');
+                            const fee = o.delivery_fee != null ? Number(o.delivery_fee) : null;
+                            const paidLabel = paidBy === 'medlan' ? 'Free (Medlan)' : 'Customer pays';
+                            const feeLabel = paidBy === 'medlan' ? (fee ? fee.toLocaleString() : '—') : '—';
+                            return (
+                              <>
+                                <div className="p-3 bg-gray-50 rounded border">
+                                  <div className="text-gray-500 text-xs uppercase">City</div>
+                                  <div className="font-semibold">{cityName || '—'}</div>
+                                </div>
+                                <div className="p-3 bg-gray-50 rounded border">
+                                  <div className="text-gray-500 text-xs uppercase">Delivery</div>
+                                  <div className="font-semibold">{paidLabel}</div>
+                                </div>
+                                <div className="p-3 bg-gray-50 rounded border">
+                                  <div className="text-gray-500 text-xs uppercase">Delivery Fee</div>
+                                  <div className="font-semibold">{feeLabel}</div>
+                                </div>
+                              </>
+                            );
+                          })()}
                         </div>
 
                         {/* Items Table */}
@@ -444,9 +621,27 @@ export default function OrdersPage() {
                                 {(viewData.items || []).map((it, idx) => (
                                     <tr key={idx}>
                                         <td className="py-3">
-                                            <div className="font-medium">{it.product_name || `Product #${it.product_id}`}</div>
-                                            <div className="text-xs text-gray-500">
-                                                {it.color_name} {it.size_name && `• ${it.size_name}`}
+                                            <div className="flex items-center gap-3">
+                                                <button
+                                                  type="button"
+                                                  className="relative h-10 w-10 rounded border bg-gray-50 overflow-hidden flex items-center justify-center cursor-pointer"
+                                                  onClick={() => {
+                                                    if (!it.variant_image) return;
+                                                    setImagePreview(assetUrl(it.variant_image));
+                                                  }}
+                                                  aria-label="Preview item image"
+                                                >
+                                                    <span className="text-[10px] text-gray-400">N/A</span>
+                                                    {it.variant_image ? (
+                                                        <img src={assetUrl(it.variant_image)} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                                    ) : null}
+                                                </button>
+                                                <div>
+                                                    <div className="font-medium">{it.product_name || `Product #${it.product_id}`}</div>
+                                                    <div className="text-xs text-gray-500">
+                                                        {it.color_name} {it.size_name && `• ${it.size_name}`}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </td>
                                         <td className="text-center py-3">{it.quantity}</td>
@@ -468,6 +663,23 @@ export default function OrdersPage() {
           </div>
         </div>
       )}
+      {imagePreview ? (
+        <div className="fixed inset-0 z-[60] bg-black/70 p-4 flex items-center justify-center" onMouseDown={() => setImagePreview('')}>
+          <div className="relative w-full max-w-4xl max-h-[90vh]" onMouseDown={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="absolute -top-3 -right-3 h-9 w-9 rounded-full bg-white/90 hover:bg-white text-gray-600 shadow flex items-center justify-center"
+              onClick={() => setImagePreview('')}
+              aria-label="Close image preview"
+            >
+              &times;
+            </button>
+            <div className="bg-white rounded-xl overflow-hidden shadow-2xl">
+              <img src={imagePreview} alt="" className="w-full h-full max-h-[90vh] object-contain bg-black" />
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* CREATE ORDER MODAL */}
       {createOpen && (
@@ -483,12 +695,66 @@ export default function OrdersPage() {
                 <div className="w-full md:w-1/3 border-r p-6 overflow-y-auto bg-gray-50">
                     <h4 className="font-bold text-sm mb-3">Customer Details</h4>
                     <form id="createOrderForm" onSubmit={submitOrder} className="space-y-3">
-                        <input className="w-full rounded border px-3 py-2 text-sm" placeholder="Name *" required value={createData.customer_name} onChange={e => setCreateData({...createData, customer_name: e.target.value})} />
+                        <input className="w-full rounded border px-3 py-2 text-sm" placeholder="Name *"  value={createData.customer_name} onChange={e => setCreateData({...createData, customer_name: e.target.value})} />
                         <input className="w-full rounded border px-3 py-2 text-sm" placeholder="Phone *" required value={createData.phone_number} onChange={e => setCreateData({...createData, phone_number: e.target.value})} />
                         <textarea className="w-full rounded border px-3 py-2 text-sm" placeholder="Address" rows="2" value={createData.address} onChange={e => setCreateData({...createData, address: e.target.value})} />
                         <select className="w-full rounded border px-3 py-2 text-sm" value={createData.order_source} onChange={e => setCreateData({...createData, order_source: e.target.value})}>
                             {SOURCES.filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
+                        <div className="rounded-lg border bg-white p-3 space-y-2">
+                          <div className="text-xs font-bold text-gray-600 uppercase">Delivery</div>
+                          <select
+                            className="w-full rounded border px-3 py-2 text-sm"
+                            value={createData.delivery_city_id}
+                            onChange={(e) => {
+                              const cityId = e.target.value;
+                              setCreateData(s => ({ ...s, delivery_city_id: cityId }));
+                            }}
+                          >
+                            <option value="">Select City</option>
+                            {deliveryCities.filter(c => Number(c.is_active ?? 1) === 1).map(c => (
+                              <option key={c.id} value={c.id}>{c.name}</option>
+                            ))}
+                          </select>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input
+                              className="w-full rounded border px-3 py-2 text-sm"
+                              type="number"
+                              step="1"
+                              placeholder="Delivery fee"
+                              value={(() => {
+                                const cityId = createData.delivery_city_id ? Number(createData.delivery_city_id) : null;
+                                const fee = cityId ? deliveryCities.find(c => Number(c.id) === cityId)?.fee : '';
+                                return fee != null ? fee : '';
+                              })()}
+                              disabled
+                            />
+                            <div className="text-xs text-gray-500 flex items-center justify-end">
+                              Free ≥ {DELIVERY_FREE_THRESHOLD.toLocaleString()}
+                            </div>
+                          </div>
+                          {(() => {
+                            const cartTotal = createData.items.reduce((sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0), 0);
+                            const isWebsite = String(createData.order_source || '').toLowerCase() === 'website';
+                            const canToggle = !isWebsite && cartTotal >= DELIVERY_FREE_THRESHOLD;
+                            const forcedClient = cartTotal < DELIVERY_FREE_THRESHOLD;
+                            const checked = forcedClient ? false : createData.delivery_paid_by === 'medlan';
+                            return (
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-medium text-gray-700">Free delivery for customer</div>
+                                <label className={`inline-flex items-center gap-2 ${canToggle ? '' : 'opacity-60'}`}>
+                                  <input
+                                    type="checkbox"
+                                    disabled={!canToggle}
+                                    checked={checked}
+                                    onChange={(e) => setCreateData(s => ({ ...s, delivery_paid_by: e.target.checked ? 'medlan' : 'client' }))}
+                                  />
+                                  <span className="text-xs text-gray-500">Medlan pays</span>
+                                </label>
+                              </div>
+                            );
+                          })()}
+                        </div>
                     </form>
 
                     <h4 className="font-bold text-sm mt-6 mb-3 flex justify-between">
@@ -597,6 +863,124 @@ export default function OrdersPage() {
           </div>
         </div>
       )}
+
+      {deliverySettingsOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
+              <h3 className="text-lg font-bold">Delivery Settings</h3>
+              <button onClick={() => setDeliverySettingsOpen(false)} className="text-2xl text-gray-400 hover:text-gray-600">&times;</button>
+            </div>
+            <div className="p-6 overflow-y-auto">
+              <div className="text-sm text-gray-600 mb-3">Set delivery fees per city.</div>
+              {deliveryCitiesApiMissing ? (
+                <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  Endpoint /api/delivery-cities not found. Backend ـەکەت پێویستی بە update هەیە (routes + controller + DB migration).
+                </div>
+              ) : null}
+              {deliveryCitiesLoading ? (
+                <div className="text-sm text-gray-500">Loading...</div>
+              ) : (
+                <div className="space-y-3">
+                  {deliveryCities.map((c) => (
+                    <div key={c.id} className="border rounded-xl p-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                        <div className="sm:col-span-3">
+                          <label className="text-xs text-gray-500">Key</label>
+                          <input
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            value={c.city_key || ''}
+                            onChange={(e) => setDeliveryCities((s) => s.map(x => Number(x.id) === Number(c.id) ? { ...x, city_key: e.target.value } : x))}
+                          />
+                        </div>
+                        <div className="sm:col-span-4">
+                          <label className="text-xs text-gray-500">Name</label>
+                          <input
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            value={c.name || ''}
+                            onChange={(e) => setDeliveryCities((s) => s.map(x => Number(x.id) === Number(c.id) ? { ...x, name: e.target.value } : x))}
+                          />
+                        </div>
+                        <div className="sm:col-span-3">
+                          <label className="text-xs text-gray-500">Fee (IQD)</label>
+                          <input
+                            className="mt-1 w-full rounded border px-3 py-2 text-sm"
+                            type="number"
+                            step="1"
+                            value={c.fee ?? ''}
+                            onChange={(e) => setDeliveryCities((s) => s.map(x => Number(x.id) === Number(c.id) ? { ...x, fee: e.target.value } : x))}
+                          />
+                        </div>
+                        <div className="sm:col-span-2 flex items-center justify-between gap-2">
+                          <label className="flex items-center gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={Number(c.is_active ?? 1) === 1}
+                              onChange={(e) => setDeliveryCities((s) => s.map(x => Number(x.id) === Number(c.id) ? { ...x, is_active: e.target.checked ? 1 : 0 } : x))}
+                            />
+                            <span className="text-xs text-gray-600">Active</span>
+                          </label>
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2 mt-3">
+                        <button
+                          className="px-3 py-2 text-sm border rounded hover:bg-gray-50"
+                          onClick={() => deleteDeliveryCity(c.id)}
+                        >
+                          Delete
+                        </button>
+                        <button
+                          className="px-3 py-2 text-sm bg-gray-900 text-white rounded hover:bg-gray-800"
+                          onClick={() => updateDeliveryCity(c.id, { city_key: c.city_key, name: c.name, fee: Number(c.fee || 0), is_active: Number(c.is_active ?? 1) })}
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {deliveryCities.length === 0 ? (
+                    <div className="text-sm text-gray-400">No cities found.</div>
+                  ) : null}
+                </div>
+              )}
+
+              <div className="mt-6 border-t pt-4">
+                <div className="text-sm font-semibold mb-2">Add City</div>
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                  <div className="sm:col-span-3">
+                    <label className="text-xs text-gray-500">Key</label>
+                    <input className="mt-1 w-full rounded border px-3 py-2 text-sm" value={newCity.city_key} onChange={(e) => setNewCity(s => ({ ...s, city_key: e.target.value }))} />
+                  </div>
+                  <div className="sm:col-span-5">
+                    <label className="text-xs text-gray-500">Name</label>
+                    <input className="mt-1 w-full rounded border px-3 py-2 text-sm" value={newCity.name} onChange={(e) => setNewCity(s => ({ ...s, name: e.target.value }))} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs text-gray-500">Fee</label>
+                    <input className="mt-1 w-full rounded border px-3 py-2 text-sm" type="number" step="1" value={newCity.fee} onChange={(e) => setNewCity(s => ({ ...s, fee: e.target.value }))} />
+                  </div>
+                  <div className="sm:col-span-1">
+                    <label className="text-xs text-gray-500">Active</label>
+                    <div className="mt-2">
+                      <input type="checkbox" checked={Number(newCity.is_active) === 1} onChange={(e) => setNewCity(s => ({ ...s, is_active: e.target.checked ? 1 : 0 }))} />
+                    </div>
+                  </div>
+                  <div className="sm:col-span-1">
+                    <button className="w-full rounded bg-blue-600 text-white px-3 py-2 text-sm hover:bg-blue-700" onClick={createDeliveryCity}>
+                      Add
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 flex justify-end gap-2">
+              <button className="px-4 py-2 rounded border hover:bg-white" onClick={() => { fetchDeliveryCities(); setDeliverySettingsOpen(false); }}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
