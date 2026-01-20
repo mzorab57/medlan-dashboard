@@ -421,7 +421,7 @@ export default function ProductsPage() {
 
       {/* UNIFIED CREATE / EDIT MODAL */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{marginTop:'0px'}}>
           <div className="w-full max-w-2xl bg-white rounded-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
                <h3 className="text-xl font-bold">{modalMode === 'create' ? 'Add New Product' : 'Edit Product'}</h3>
@@ -501,7 +501,7 @@ export default function ProductsPage() {
 
       {/* VIEW / DETAILS MODAL */}
       {viewId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{marginTop:'0px'}}>
            <div className="w-full max-w-4xl bg-white rounded-xl shadow-2xl overflow-hidden h-[95vh] flex flex-col">
               <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
                  <h3 className="text-xl font-bold">Product Details</h3>

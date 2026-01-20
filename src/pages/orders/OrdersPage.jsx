@@ -21,6 +21,12 @@ function stripMetaFromAddress(address) {
   return String(address || '').replace(/\s*\[medlan:[a-z_]+=[^\]]+\]\s*/gi, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function toNum(v) {
+  const s = String(v ?? '').replace(/,/g, '').trim();
+  const n = s === '' ? 0 : Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
 export default function OrdersPage() {
   const { add } = useToast();
   
@@ -40,6 +46,9 @@ export default function OrdersPage() {
   const [viewLoading, setViewLoading] = useState(false);
   const [updateStatusMap, setUpdateStatusMap] = useState({});
   const [imagePreview, setImagePreview] = useState('');
+  const [discountDraft, setDiscountDraft] = useState('');
+  const [discountSaving, setDiscountSaving] = useState(false);
+  const [pendingDiscountByOrderId, setPendingDiscountByOrderId] = useState({});
 
   // --- Create State ---
   const [createOpen, setCreateOpen] = useState(false);
@@ -224,6 +233,10 @@ export default function OrdersPage() {
       });
 
       setViewData({ ...orderData, items: orderItems });
+      const oid = Number(id);
+      const queued = pendingDiscountByOrderId?.[oid];
+      const od = orderData?.order?.order_discount ?? orderData?.order?.discount ?? 0;
+      setDiscountDraft(String(queued != null ? queued : (od ?? '')));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -281,13 +294,46 @@ export default function OrdersPage() {
       if(!newStatus) return;
       // Optimistic UI update or simple reload
       try {
-          await api.patch(`/api/orders/status?id=${id}`, { status: newStatus });
+          const oid = Number(id);
+          const normalized = normalizeStatus(newStatus);
+          const queued = pendingDiscountByOrderId?.[oid];
+          const payload = { status: newStatus };
+          if (normalized === 'completed' && queued != null) {
+              setDiscountSaving(true);
+              payload.order_discount = Number(queued || 0);
+          }
+          await api.patch(`/api/orders/status?id=${id}`, payload);
           add('Status updated', 'success');
           setUpdateStatusMap(prev => ({ ...prev, [id]: newStatus }));
+          if (normalized === 'completed') {
+            setPendingDiscountByOrderId((s) => {
+              const next = { ...(s || {}) };
+              delete next[oid];
+              return next;
+            });
+          }
           fetchList(); // Refresh list to be sure
       } catch(e) {
           add(e.message, 'error');
+      } finally {
+          setDiscountSaving(false);
       }
+  }
+
+  async function applyDiscount(orderId, discountAmount) {
+    const oid = Number(orderId);
+    const amt = Number(discountAmount || 0);
+    if (!Number.isFinite(amt) || amt < 0) {
+      add('Invalid discount', 'error');
+      return;
+    }
+    setPendingDiscountByOrderId((s) => {
+      const next = { ...(s || {}) };
+      if (amt > 0) next[oid] = amt;
+      else delete next[oid];
+      return next;
+    });
+    add('Discount queued (will apply on completed)', 'success');
   }
 
   // Create Order Logic
@@ -551,7 +597,7 @@ export default function OrdersPage() {
 
       {/* VIEW ORDER MODAL */}
       {viewId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{marginTop:'0px'}}>
           <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
                 <h3 className="text-lg font-bold">Order Details #{viewId}</h3>
@@ -607,56 +653,141 @@ export default function OrdersPage() {
                           })()}
                         </div>
 
-                        {/* Items Table */}
-                        <table className="w-full text-sm border-collapse">
-                            <thead>
-                                <tr className="border-b text-gray-500 text-xs uppercase">
+                        {(() => {
+                          const o = viewData.order || {};
+                          const st = normalizeStatus(o.status);
+                          const editable = ['pending', 'processing', 'shipped'].includes(st);
+                          const list = Array.isArray(viewData.items) ? viewData.items : [];
+                          const subtotal = list.reduce((sum, it) => sum + toNum(it.price) * toNum(it.quantity), 0);
+                          const costTotal = list.reduce((sum, it) => sum + toNum(it.cost) * toNum(it.quantity), 0);
+                          const grossProfit = subtotal - costTotal;
+                          const maxDiscount = Math.max(0, grossProfit);
+                          const currentDiscount = toNum(o.order_discount || 0);
+                          const oid = Number(o.id || viewId);
+                          const queuedDiscount = pendingDiscountByOrderId?.[oid];
+                          const effectiveDiscount = Number(queuedDiscount != null ? queuedDiscount : currentDiscount);
+                          const draft = toNum(discountDraft || 0);
+                          const invalid = !Number.isFinite(draft) || draft < 0 || draft > maxDiscount;
+                          const netProfit = grossProfit - effectiveDiscount;
+                          return (
+                            <>
+                              <div className="rounded-xl border bg-white p-4">
+                                <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+                                  <div>
+                                    <div className="text-xs font-bold text-gray-600 uppercase">Discount</div>
+                                    <div className="text-sm text-gray-600">
+                                      Max: {maxDiscount.toLocaleString()} • Gross profit: {grossProfit.toLocaleString()} • Net profit: {netProfit.toLocaleString()}
+                                      {queuedDiscount != null && editable ? ` • Queued: ${Number(queuedDiscount).toLocaleString()}` : ''}
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      className={`w-40 rounded border px-3 py-2 text-sm ${invalid ? 'border-red-300' : ''}`}
+                                      type="number"
+                                      step="1"
+                                      value={discountDraft}
+                                      onChange={(e) => setDiscountDraft(e.target.value)}
+                                      disabled={!editable || discountSaving}
+                                      placeholder="Discount"
+                                    />
+                                    <button
+                                      type="button"
+                                      className="px-4 py-2 rounded bg-gray-900 text-white text-sm hover:bg-gray-800 disabled:opacity-50"
+                                      disabled={!editable || discountSaving || invalid}
+                                      onClick={() => applyDiscount(viewId, draft)}
+                                    >
+                                      Queue
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="px-4 py-2 rounded border text-sm hover:bg-gray-50 disabled:opacity-50"
+                                      disabled={!editable || discountSaving || (currentDiscount === 0 && queuedDiscount == null)}
+                                      onClick={() => { setDiscountDraft('0'); applyDiscount(viewId, 0); }}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                </div>
+                                {editable ? (
+                                  <div className="mt-2 text-xs text-gray-500">Discount will be sent to backend only when status becomes completed.</div>
+                                ) : null}
+                                {invalid ? (
+                                  <div className="mt-2 text-xs text-red-600">Discount must be between 0 and {maxDiscount.toLocaleString()}.</div>
+                                ) : null}
+                              </div>
+
+                              <table className="w-full text-sm border-collapse">
+                                <thead>
+                                  <tr className="border-b text-gray-500 text-xs uppercase">
                                     <th className="text-left py-2">Item</th>
                                     <th className="text-center py-2">Qty</th>
                                     <th className="text-right py-2">Price</th>
                                     <th className="text-right py-2">Total</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y">
-                                {(viewData.items || []).map((it, idx) => (
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y">
+                                  {list.map((it, idx) => (
                                     <tr key={idx}>
-                                        <td className="py-3">
-                                            <div className="flex items-center gap-3">
-                                                <button
-                                                  type="button"
-                                                  className="relative h-10 w-10 rounded border bg-gray-50 overflow-hidden flex items-center justify-center cursor-pointer"
-                                                  onClick={() => {
-                                                    if (!it.variant_image) return;
-                                                    setImagePreview(assetUrl(it.variant_image));
-                                                  }}
-                                                  aria-label="Preview item image"
-                                                >
-                                                    <span className="text-[10px] text-gray-400">N/A</span>
-                                                    {it.variant_image ? (
-                                                        <img src={assetUrl(it.variant_image)} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                                                    ) : null}
-                                                </button>
-                                                <div>
-                                                    <div className="font-medium">{it.product_name || `Product #${it.product_id}`}</div>
-                                                    <div className="text-xs text-gray-500">
-                                                        {it.color_name} {it.size_name && `• ${it.size_name}`}
-                                                    </div>
-                                                </div>
+                                      <td className="py-3">
+                                        <div className="flex items-center gap-3">
+                                          <button
+                                            type="button"
+                                            className="relative h-10 w-10 rounded border bg-gray-50 overflow-hidden flex items-center justify-center cursor-pointer"
+                                            onClick={() => {
+                                              if (!it.variant_image) return;
+                                              setImagePreview(assetUrl(it.variant_image));
+                                            }}
+                                            aria-label="Preview item image"
+                                          >
+                                            <span className="text-[10px] text-gray-400">N/A</span>
+                                            {it.variant_image ? (
+                                              <img src={assetUrl(it.variant_image)} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                                            ) : null}
+                                          </button>
+                                          <div>
+                                            <div className="font-medium">{it.product_name || `Product #${it.product_id}`}</div>
+                                            <div className="text-xs text-gray-500">
+                                              {it.color_name} {it.size_name && `• ${it.size_name}`}
                                             </div>
-                                        </td>
-                                        <td className="text-center py-3">{it.quantity}</td>
-                                        <td className="text-right py-3">{Number(it.price).toLocaleString()}</td>
-                                        <td className="text-right py-3 font-medium">{(it.quantity * it.price).toLocaleString()}</td>
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="text-center py-3">{it.quantity}</td>
+                                      <td className="text-right py-3">{Number(it.price).toLocaleString()}</td>
+                                      <td className="text-right py-3 font-medium">{(Number(it.quantity || 0) * Number(it.price || 0)).toLocaleString()}</td>
                                     </tr>
-                                ))}
-                            </tbody>
-                            <tfoot className="border-t">
-                                <tr>
+                                  ))}
+                                </tbody>
+                                <tfoot className="border-t">
+                                  <tr>
+                                    <td colSpan="3" className="text-right py-2 font-bold text-gray-600">Subtotal</td>
+                                    <td className="text-right py-2 font-bold">{subtotal.toLocaleString()}</td>
+                                  </tr>
+                                  <tr>
+                                    <td colSpan="3" className="text-right py-2 font-bold text-gray-600">Order Discount</td>
+                                    <td className="text-right py-2 font-bold">{currentDiscount ? `-${currentDiscount.toLocaleString()}` : '0'}</td>
+                                  </tr>
+                                  {queuedDiscount != null && editable ? (
+                                    <tr>
+                                      <td colSpan="3" className="text-right py-2 font-bold text-gray-600">Queued Discount</td>
+                                      <td className="text-right py-2 font-bold">{`-${Number(queuedDiscount).toLocaleString()}`}</td>
+                                    </tr>
+                                  ) : null}
+                                  <tr>
                                     <td colSpan="3" className="text-right py-3 font-bold text-gray-600">Total</td>
-                                    <td className="text-right py-3 font-bold text-lg">{Number(viewData.order?.total_price || 0).toLocaleString()}</td>
-                                </tr>
-                            </tfoot>
-                        </table>
+                                    <td className="text-right py-3 font-bold text-lg">{toNum(o.total_price || (subtotal - currentDiscount) || 0).toLocaleString()}</td>
+                                  </tr>
+                                  {queuedDiscount != null && editable ? (
+                                    <tr>
+                                      <td colSpan="3" className="text-right py-3 font-bold text-gray-600">Preview Total (After Completed)</td>
+                                      <td className="text-right py-3 font-bold text-lg">{Math.max(0, (subtotal - toNum(queuedDiscount || 0))).toLocaleString()}</td>
+                                    </tr>
+                                  ) : null}
+                                </tfoot>
+                              </table>
+                            </>
+                          );
+                        })()}
                     </div>
                 )}
             </div>
@@ -664,7 +795,7 @@ export default function OrdersPage() {
         </div>
       )}
       {imagePreview ? (
-        <div className="fixed inset-0 z-[60] bg-black/70 p-4 flex items-center justify-center" onMouseDown={() => setImagePreview('')}>
+        <div className="fixed inset-0 z-[60] bg-black/70 p-4 flex items-center justify-center" style={{marginTop:'0px'}} onMouseDown={() => setImagePreview('')}>
           <div className="relative w-full max-w-4xl max-h-[90vh]" onMouseDown={(e) => e.stopPropagation()}>
             <button
               type="button"
@@ -683,7 +814,7 @@ export default function OrdersPage() {
 
       {/* CREATE ORDER MODAL */}
       {createOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{marginTop:'0px'}}>
           <div className="bg-white w-full max-w-5xl rounded-xl shadow-2xl h-[90vh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
                 <h3 className="text-lg font-bold">New Order</h3>
@@ -865,7 +996,7 @@ export default function OrdersPage() {
       )}
 
       {deliverySettingsOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{marginTop:'0px'}}>
           <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
               <h3 className="text-lg font-bold">Delivery Settings</h3>

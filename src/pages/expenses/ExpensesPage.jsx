@@ -11,6 +11,7 @@ const getCategoryIcon = (category) => {
     case 'marketing': return <span className="p-2 rounded-lg bg-purple-100 text-purple-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" /></svg></span>;
     case 'transport': return <span className="p-2 rounded-lg bg-blue-100 text-blue-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 02-1-1H4.5A2.25 2.25 0 002.25 9v5.5a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25V16" /></svg></span>;
     case 'delivery': return <span className="p-2 rounded-lg bg-cyan-100 text-cyan-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h11v10H3V7zm11 4h3l3 3v3h-6v-6zm2 8a2 2 0 104 0 2 2 0 00-4 0zM5 19a2 2 0 104 0 2 2 0 00-4 0z" /></svg></span>;
+    case 'discount': return <span className="p-2 rounded-lg bg-orange-100 text-orange-700"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 14l6-6m-7 0h.01M16 16h.01M7 7a4 4 0 016 0l4 4a4 4 0 01-6 6l-4-4a4 4 0 010-6z" /></svg></span>;
     default: return <span className="p-2 rounded-lg bg-gray-100 text-gray-600"><svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg></span>;
   }
 };
@@ -234,7 +235,7 @@ export default function ExpensesPage() {
 
       {/* EDIT MODAL */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm transition-all duration-300">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 p-4 backdrop-blur-sm transition-all duration-300" style={{marginTop:'0px'}}>
           <div className="w-full max-w-lg bg-white rounded-2xl shadow-2xl p-0 overflow-hidden transform scale-100 transition-all">
             <div className="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
                 <h3 className="text-lg font-bold text-gray-800">{editingId ? 'Edit Expense' : 'Create Expense'}</h3>
@@ -264,6 +265,7 @@ export default function ExpensesPage() {
                                 <option value="marketing">Marketing</option>
                                 <option value="transport">Transport</option>
                                 <option value="delivery">Delivery</option>
+                                <option value="discount">Discount</option>
                                 <option value="other">Other</option>
                         </select>
                     </div>

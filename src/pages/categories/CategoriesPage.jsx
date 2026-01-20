@@ -227,7 +227,7 @@ export default function CategoriesPage() {
 
       {/* Unified Create/Edit Modal */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{marginTop:'0px'}}>
           <div className="w-full max-w-lg bg-white rounded-xl shadow-2xl p-6 transform transition-all">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-gray-800">

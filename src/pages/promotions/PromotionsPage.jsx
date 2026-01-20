@@ -284,7 +284,7 @@ export default function PromotionsPage() {
 
       {/* CREATE / EDIT MODAL */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/50 backdrop-blur-sm p-4" style={{marginTop:'0px'}}>
           <div className="w-full max-w-lg bg-white rounded-xl shadow-2xl p-6">
             <h3 className="text-xl font-bold mb-4">{modalMode === 'create' ? 'Create Promotion' : 'Edit Promotion'}</h3>
             <form onSubmit={submitForm} className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -335,7 +335,7 @@ export default function PromotionsPage() {
 
       {/* MANAGE ITEMS MODAL (FULL SCREENISH) */}
       {manageId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" style={{marginTop:'0px'}}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl h-[90vh] flex flex-col overflow-hidden">
             
             {/* Header */}

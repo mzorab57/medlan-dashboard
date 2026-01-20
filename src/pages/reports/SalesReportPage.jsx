@@ -111,6 +111,8 @@ export default function SalesReportPage() {
         { header: 'Cost', key: 'purchase_cost' },
         { header: 'Profit/Unit', key: 'profit_per_unit' },
         { header: 'Total Profit', key: 'total_profit' },
+        { header: 'Order Discount', key: 'order_discount' },
+        { header: 'Order Net Profit', key: 'order_net_profit' },
         { header: 'Total Sale', key: 'total_sale_amount' },
         { header: 'Promotion', key: 'promotion_used' },
       ]);
@@ -272,6 +274,8 @@ export default function SalesReportPage() {
                 <th className="text-left px-3 py-2">Sale</th>
                 <th className="text-left px-3 py-2">Cost</th>
                 <th className="text-left px-3 py-2">Profit</th>
+                <th className="text-left px-3 py-2">Order Discount</th>
+                <th className="text-left px-3 py-2">Net Profit</th>
               </tr>
             </thead>
             <tbody>
@@ -291,6 +295,8 @@ export default function SalesReportPage() {
                   <td className="px-3 py-2">{r.sale_price}</td>
                   <td className="px-3 py-2">{r.purchase_cost}</td>
                   <td className="px-3 py-2">{r.total_profit}</td>
+                  <td className="px-3 py-2">{r.order_discount ?? 0}</td>
+                  <td className="px-3 py-2">{r.order_net_profit ?? r.total_profit}</td>
                 </tr>
               ))}
             </tbody>
@@ -512,4 +518,3 @@ export default function SalesReportPage() {
   //     </div>
   //   </div>
   // );
-
