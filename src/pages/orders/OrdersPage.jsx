@@ -49,6 +49,8 @@ export default function OrdersPage() {
   const [discountDraft, setDiscountDraft] = useState('');
   const [discountSaving, setDiscountSaving] = useState(false);
   const [pendingDiscountByOrderId, setPendingDiscountByOrderId] = useState({});
+  const [itemPriceDraftById, setItemPriceDraftById] = useState({});
+  const [itemPriceSavingById, setItemPriceSavingById] = useState({});
 
   // --- Create State ---
   const [createOpen, setCreateOpen] = useState(false);
@@ -219,12 +221,17 @@ export default function OrdersPage() {
           if (pid && specsMap[pid]) {
               const matchedSpec = specsMap[pid].find(s => Number(s.id) === Number(sid));
               if (matchedSpec) {
+                  const currentFinal = matchedSpec.final_price != null ? Number(matchedSpec.final_price) : null;
+                  const currentBase = matchedSpec.price != null ? Number(matchedSpec.price) : null;
+                  const currentPurchase = matchedSpec.purchase_price != null ? Number(matchedSpec.purchase_price) : null;
                   return {
                       ...it,
                       product_name: it.product_name || productNameMap[pid] || it.product_name,
                       size_name: it.size_name || matchedSpec.size_name || matchedSpec.size,
                       color_name: it.color_name || matchedSpec.color_name || matchedSpec.color,
                       variant_image: it.variant_image || specImageMap[sid] || matchedSpec.image || matchedSpec.primary_image,
+                      variant_current_price: Number.isFinite(currentFinal) ? currentFinal : (Number.isFinite(currentBase) ? currentBase : undefined),
+                      variant_purchase_price: Number.isFinite(currentPurchase) ? currentPurchase : undefined,
                       // assuming product name might be in the parent object in your API, otherwise fetch product details
                   };
               }
@@ -233,6 +240,15 @@ export default function OrdersPage() {
       });
 
       setViewData({ ...orderData, items: orderItems });
+      setItemPriceDraftById((prev) => {
+        const base = prev && typeof prev === 'object' ? { ...prev } : {};
+        orderItems.forEach((it) => {
+          const idNum = Number(it.id);
+          if (!Number.isFinite(idNum)) return;
+          if (base[idNum] == null) base[idNum] = String(it.price ?? '');
+        });
+        return base;
+      });
       const oid = Number(id);
       const queued = pendingDiscountByOrderId?.[oid];
       const od = orderData?.order?.order_discount ?? orderData?.order?.discount ?? 0;
@@ -350,6 +366,9 @@ export default function OrdersPage() {
                   items: prev.items.map(i => i.product_spec_id === spec.id ? { ...i, quantity: i.quantity + 1 } : i)
               };
           }
+          const promoPrice = toNum(spec.final_price || spec.price);
+          const basePrice = toNum(spec.price);
+          const purchasePrice = spec.purchase_price == null ? null : toNum(spec.purchase_price);
           return {
               ...prev,
               items: [...prev.items, {
@@ -357,7 +376,11 @@ export default function OrdersPage() {
                   product_name: productName,
                   color_name: spec.color_name || spec.color_id,
                   size_name: spec.size_name || spec.size_id,
-                  price: spec.final_price || spec.price,
+                  price: promoPrice,
+                  promo_price: promoPrice,
+                  base_price: basePrice,
+                  purchase_price: purchasePrice,
+                  promo_discount_amount: toNum(spec.discount_amount || 0),
                   quantity: 1,
                   stock: spec.stock
               }]
@@ -368,7 +391,7 @@ export default function OrdersPage() {
   async function submitOrder(e) {
       e.preventDefault();
       try {
-          const cartTotal = createData.items.reduce((sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0), 0);
+          const cartTotal = createData.items.reduce((sum, it) => sum + toNum(it.price) * toNum(it.quantity), 0);
           const isWebsite = String(createData.order_source || '').toLowerCase() === 'website';
           const canToggle = !isWebsite && cartTotal >= DELIVERY_FREE_THRESHOLD;
           const paidBy = cartTotal < DELIVERY_FREE_THRESHOLD ? 'client' : (canToggle ? createData.delivery_paid_by : 'medlan');
@@ -377,12 +400,29 @@ export default function OrdersPage() {
               add('Select delivery city', 'error');
               return;
           }
+          for (const it of createData.items) {
+              const unitPrice = toNum(it.price);
+              const pp = it.purchase_price == null ? null : toNum(it.purchase_price);
+              if (pp != null && pp > 0 && unitPrice < pp) {
+                  add(`Price for ${it.product_name} cannot be below purchase price`, 'error');
+                  return;
+              }
+              const promo = toNum(it.promo_price ?? it.base_price ?? it.price);
+              if (unitPrice > promo) {
+                  add(`Price for ${it.product_name} cannot be above promo price`, 'error');
+                  return;
+              }
+          }
           const payload = {
               customer_name: createData.customer_name,
               phone_number: createData.phone_number,
               address: stripMetaFromAddress(createData.address),
               order_source: normalizeSource(createData.order_source),
-              items: createData.items.map(i => ({ product_spec_id: i.product_spec_id, quantity: i.quantity })),
+              items: createData.items.map(i => ({
+                product_spec_id: i.product_spec_id,
+                quantity: i.quantity,
+                unit_price: (toNum(i.price) !== toNum(i.promo_price)) ? toNum(i.price) : undefined,
+              })),
               delivery_city_id: cityId || undefined,
               delivery_paid_by: canToggle ? paidBy : undefined,
           };
@@ -753,7 +793,51 @@ export default function OrdersPage() {
                                         </div>
                                       </td>
                                       <td className="text-center py-3">{it.quantity}</td>
-                                      <td className="text-right py-3">{Number(it.price).toLocaleString()}</td>
+                                      <td className="text-right py-3">
+                                        {editable ? (
+                                          <div className="flex items-center justify-end gap-2">
+                                            <input
+                                              className="w-28 border rounded px-2 py-1 text-right"
+                                              type="number"
+                                              step="1"
+                                              value={itemPriceDraftById[it.id] ?? String(it.price ?? '')}
+                                              min={toNum(it.variant_purchase_price ?? 0)}
+                                              max={toNum(it.variant_current_price ?? it.price ?? 0)}
+                                              onChange={(e) => {
+                                                const v = e.target.value;
+                                                setItemPriceDraftById((s) => ({ ...(s || {}), [it.id]: v }));
+                                              }}
+                                            />
+                                            <button
+                                              type="button"
+                                              className="text-xs px-2 py-1 rounded border hover:bg-gray-50 disabled:opacity-50"
+                                              disabled={itemPriceSavingById[it.id]}
+                                              onClick={async () => {
+                                                const draft = toNum(itemPriceDraftById[it.id] ?? it.price);
+                                                const minP = toNum(it.variant_purchase_price ?? 0);
+                                                const maxP = toNum(it.variant_current_price ?? it.price ?? 0);
+                                                if (draft < minP) { add(`Price cannot be below purchase (${minP.toLocaleString()})`, 'error'); return; }
+                                                if (draft > maxP) { add(`Price cannot exceed variant price (${maxP.toLocaleString()})`, 'error'); return; }
+                                                setItemPriceSavingById((s) => ({ ...(s || {}), [it.id]: true }));
+                                                try {
+                                                  await api.patch(`/api/orders/items?id=${it.id}`, { unit_price: draft });
+                                                  add('Item price updated', 'success');
+                                                  fetchView(viewId);
+                                                  fetchList();
+                                                } catch (e) {
+                                                  add(e.message, 'error');
+                                                } finally {
+                                                  setItemPriceSavingById((s) => ({ ...(s || {}), [it.id]: false }));
+                                                }
+                                              }}
+                                            >
+                                              Save
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          Number(it.price).toLocaleString()
+                                        )}
+                                      </td>
                                       <td className="text-right py-3 font-medium">{(Number(it.quantity || 0) * Number(it.price || 0)).toLocaleString()}</td>
                                     </tr>
                                   ))}
@@ -865,7 +949,7 @@ export default function OrdersPage() {
                             </div>
                           </div>
                           {(() => {
-                            const cartTotal = createData.items.reduce((sum, it) => sum + Number(it.price || 0) * Number(it.quantity || 0), 0);
+                            const cartTotal = createData.items.reduce((sum, it) => sum + toNum(it.price) * toNum(it.quantity), 0);
                             const isWebsite = String(createData.order_source || '').toLowerCase() === 'website';
                             const canToggle = !isWebsite && cartTotal >= DELIVERY_FREE_THRESHOLD;
                             const forcedClient = cartTotal < DELIVERY_FREE_THRESHOLD;
@@ -895,28 +979,80 @@ export default function OrdersPage() {
                     <div className="space-y-2">
                         {createData.items.length === 0 ? <div className="text-sm text-gray-400 italic">Cart is empty</div> : (
                             createData.items.map((it, idx) => (
-                                <div key={idx} className="bg-white p-2 rounded border shadow-sm flex justify-between items-center text-sm">
+                                <div key={idx} className="bg-white p-2 rounded border shadow-sm text-sm">
                                     <div>
                                         <div className="font-medium truncate w-32">{it.product_name}</div>
                                         <div className="text-xs text-gray-500">{it.color_name} / {it.size_name}</div>
-                                        <div className="text-xs text-blue-600">{Number(it.price).toLocaleString()} IQD</div>
+                                        <div className="text-xs text-blue-600">{toNum(it.price).toLocaleString()} IQD</div>
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                        <input 
-                                            type="number" className="w-10 text-center border rounded" 
-                                            value={it.quantity} 
-                                            min="1" max={it.stock}
+                                    <div className="mt-2 grid grid-cols-12 gap-2 items-center">
+                                      <div className="col-span-7">
+                                        <div className="text-[11px] text-gray-500">Unit price</div>
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            type="number"
+                                            step="1"
+                                            className="w-full border rounded px-2 py-1"
+                                            value={it.price ?? ''}
                                             onChange={(e) => {
-                                                const v = Math.min(Number(e.target.value), it.stock);
-                                                setCreateData(prev => ({
-                                                    ...prev,
-                                                    items: prev.items.map(item => item.product_spec_id === it.product_spec_id ? { ...item, quantity: v } : item)
-                                                }))
+                                              const raw = e.target.value;
+                                              const promo = toNum(it.promo_price ?? it.base_price ?? it.price);
+                                              const purchase = it.purchase_price != null ? toNum(it.purchase_price) : null;
+                                              let vNum = raw === '' ? 0 : toNum(raw);
+                                              if (purchase != null && purchase > 0) vNum = Math.max(purchase, vNum);
+                                              vNum = Math.min(promo, vNum);
+                                              const v = raw === '' ? '' : String(vNum);
+                                              setCreateData(prev => ({
+                                                ...prev,
+                                                items: prev.items.map(item => item.product_spec_id === it.product_spec_id ? { ...item, price: v } : item)
+                                              }));
                                             }}
+                                            min={it.purchase_price != null ? toNum(it.purchase_price) : undefined}
+                                            max={toNum(it.promo_price ?? it.base_price ?? it.price)}
+                                          />
+                                          <button
+                                            type="button"
+                                            className="text-xs px-2 py-1 rounded border hover:bg-gray-50"
+                                            onClick={() => setCreateData(prev => ({
+                                              ...prev,
+                                              items: prev.items.map(item => item.product_spec_id === it.product_spec_id ? { ...item, price: item.promo_price } : item)
+                                            }))}
+                                          >
+                                            Reset
+                                          </button>
+                                        </div>
+                                        <div className="mt-1 text-[11px] text-gray-400">
+                                          {it.purchase_price != null ? `Purchase: ${toNum(it.purchase_price).toLocaleString()} • ` : ''}
+                                          Promo: {toNum(it.promo_price ?? it.base_price ?? it.price).toLocaleString()}
+                                        </div>
+                                      </div>
+                                      <div className="col-span-4">
+                                        <div className="text-[11px] text-gray-500 text-center">Qty</div>
+                                        <input
+                                          type="number"
+                                          className="w-full text-center border rounded px-2 py-1"
+                                          value={it.quantity}
+                                          min="1"
+                                          max={it.stock}
+                                          onChange={(e) => {
+                                            const v = Math.min(Number(e.target.value), it.stock);
+                                            setCreateData(prev => ({
+                                              ...prev,
+                                              items: prev.items.map(item => item.product_spec_id === it.product_spec_id ? { ...item, quantity: v } : item)
+                                            }));
+                                          }}
                                         />
-                                        <button type="button" onClick={() => setCreateData(prev => ({...prev, items: prev.items.filter(i => i.product_spec_id !== it.product_spec_id)}))} className="text-red-500 hover:text-red-700 p-1">
-                                            &times;
+                                      </div>
+                                      <div className="col-span-1 flex justify-end">
+                                        <button
+                                          type="button"
+                                          onClick={() => setCreateData(prev => ({...prev, items: prev.items.filter(i => i.product_spec_id !== it.product_spec_id)}))}
+                                          className="text-red-500 hover:text-red-700 p-1"
+                                          aria-label="Remove"
+                                        >
+                                          &times;
                                         </button>
+                                      </div>
                                     </div>
                                 </div>
                             ))
