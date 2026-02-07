@@ -18,6 +18,7 @@ import Toaster from './components/Toaster';
 import './index.css';
 import ColorsSizesPage from './pages/meta/ColorsSizesPage.jsx';
 import ExpensesPage from './pages/expenses/ExpensesPage.jsx';
+import PurchasesPage from './pages/purchases/PurchasesPage.jsx';
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="users" element={<RequireRole roles={['admin']}><UsersPage /></RequireRole>} />
           <Route path="feedback" element={<FeedbackPage />} />
           <Route path="stock" element={<RequireRole roles={['admin','employee']}><StockPage /></RequireRole>} />
+          <Route path="purchases" element={<RequireRole roles={['admin','employee']}><PurchasesPage /></RequireRole>} />
           <Route path="categories" element={<CategoriesPage />} />
           <Route path="brands" element={<BrandsPage />} />
           <Route path="subcategories" element={<SubcategoriesPage />} />

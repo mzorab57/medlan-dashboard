@@ -51,6 +51,12 @@ export default function OrdersPage() {
   const [pendingDiscountByOrderId, setPendingDiscountByOrderId] = useState({});
   const [itemPriceDraftById, setItemPriceDraftById] = useState({});
   const [itemPriceSavingById, setItemPriceSavingById] = useState({});
+  const [editSpecSearch, setEditSpecSearch] = useState('');
+  const [editSpecResults, setEditSpecResults] = useState([]);
+  const [editIsSearching, setEditIsSearching] = useState(false);
+  const [editSelectedProduct, setEditSelectedProduct] = useState(null);
+  const [editAddQty, setEditAddQty] = useState(1);
+  const [editAddLoading, setEditAddLoading] = useState(false);
 
   // --- Create State ---
   const [createOpen, setCreateOpen] = useState(false);
@@ -277,6 +283,22 @@ export default function OrdersPage() {
     return () => clearTimeout(t);
   }, [specSearch]);
 
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      if (!editSpecSearch.trim()) {
+        setEditSpecResults([]);
+        return;
+      }
+      setEditIsSearching(true);
+      try {
+        const res = await api.get(`/api/products?search=${editSpecSearch}&per_page=5`);
+        setEditSpecResults(res.data || res || []);
+      } catch { setEditSpecResults([]); }
+      finally { setEditIsSearching(false); }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [editSpecSearch]);
+
   async function selectProductForCreate(prod) {
       try {
           const res = await api.get(`/api/products/${prod.id}/specs`);
@@ -284,6 +306,18 @@ export default function OrdersPage() {
           setSelectedProduct({ ...prod, specs });
           setSpecSearch(prod.name); // Set input to name
           setSpecResults([]); // Hide dropdown
+      } catch {
+          add('Failed to load product specs', 'error');
+      }
+  }
+
+  async function selectProductForEdit(prod) {
+      try {
+          const res = await api.get(`/api/products/${prod.id}/specs`);
+          const specs = Array.isArray(res) ? res : (res.data || []);
+          setEditSelectedProduct({ ...prod, specs });
+          setEditSpecSearch(prod.name);
+          setEditSpecResults([]);
       } catch {
           add('Failed to load product specs', 'error');
       }
@@ -350,6 +384,38 @@ export default function OrdersPage() {
       return next;
     });
     add('Discount queued (will apply on completed)', 'success');
+  }
+
+  async function addItemToOrder(spec, qty = 1) {
+    if (!viewId) return;
+    setEditAddLoading(true);
+    try {
+      await api.post(`/api/orders/items?id=${viewId}`, { product_spec_id: Number(spec.id), quantity: Number(qty || 1) });
+      add('Item added', 'success');
+      setEditSelectedProduct(null);
+      setEditSpecSearch('');
+      setEditSpecResults([]);
+      setEditAddQty(1);
+      fetchView(viewId);
+      fetchList();
+    } catch (e) {
+      add(e.message, 'error');
+    } finally {
+      setEditAddLoading(false);
+    }
+  }
+
+  async function deleteItemFromOrder(orderItemId) {
+    if (!viewId) return;
+    
+    try {
+      await api.del(`/api/orders/items?id=${orderItemId}`);
+      add('Item removed', 'success');
+      fetchView(viewId);
+      fetchList();
+    } catch (e) {
+      add(e.message, 'error');
+    }
   }
 
   // Create Order Logic
@@ -833,6 +899,14 @@ export default function OrdersPage() {
                                             >
                                               Save
                                             </button>
+                                            <button
+                                              type="button"
+                                              className="text-xs px-2 py-1 rounded border text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                              disabled={itemPriceSavingById[it.id]}
+                                              onClick={() => deleteItemFromOrder(it.id)}
+                                            >
+                                              Delete
+                                            </button>
                                           </div>
                                         ) : (
                                           Number(it.price).toLocaleString()
@@ -869,6 +943,92 @@ export default function OrdersPage() {
                                   ) : null}
                                 </tfoot>
                               </table>
+
+                              {editable ? (
+                                <div className="mt-4 rounded-xl border bg-white p-4">
+                                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div>
+                                      <div className="text-xs font-bold text-gray-600 uppercase">Add Item</div>
+                                      <div className="text-xs text-gray-500">Search product, pick variant, then add to this order.</div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <div className="text-xs text-gray-500">Qty</div>
+                                      <input
+                                        className="w-20 border rounded px-2 py-1 text-right"
+                                        type="number"
+                                        min="1"
+                                        step="1"
+                                        value={editAddQty}
+                                        onChange={(e) => setEditAddQty(Math.max(1, toNum(e.target.value)))}
+                                        disabled={editAddLoading}
+                                      />
+                                    </div>
+                                  </div>
+
+                                  <div className="mt-3">
+                                    {!editSelectedProduct ? (
+                                      <>
+                                        <input
+                                          className="w-full rounded border px-3 py-2 text-sm"
+                                          placeholder="Search products..."
+                                          value={editSpecSearch}
+                                          onChange={(e) => setEditSpecSearch(e.target.value)}
+                                          disabled={editAddLoading}
+                                        />
+                                        <div className="mt-2 space-y-2">
+                                          {editIsSearching ? <div className="text-xs text-gray-500">Searching...</div> : null}
+                                          {editSpecResults.map((p) => (
+                                            <button
+                                              key={p.id}
+                                              type="button"
+                                              className="w-full text-left p-2 border rounded hover:bg-blue-50"
+                                              onClick={() => selectProductForEdit(p)}
+                                              disabled={editAddLoading}
+                                            >
+                                              <div className="font-medium text-sm">{p.name}</div>
+                                              <div className="text-xs text-gray-500">Select variants</div>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </>
+                                    ) : (
+                                      <div>
+                                        <button
+                                          type="button"
+                                          className="text-xs text-gray-500 mb-2 hover:text-gray-800"
+                                          onClick={() => { setEditSelectedProduct(null); setEditSpecSearch(''); setEditSpecResults([]); }}
+                                          disabled={editAddLoading}
+                                        >
+                                          &larr; Back to search
+                                        </button>
+                                        <div className="font-bold text-sm mb-2">{editSelectedProduct.name}</div>
+                                        <div className="space-y-2">
+                                          {(editSelectedProduct.specs || []).map((sp) => (
+                                            <div key={sp.id} className="flex items-center justify-between p-2 border rounded">
+                                              <div>
+                                                <div className="text-xs font-semibold">
+                                                  {sp.color_name || sp.color_id} {sp.size_name ? `• ${sp.size_name}` : ''}
+                                                </div>
+                                                <div className="text-[11px] text-gray-500">
+                                                  Stock: {sp.stock} • Price: {toNum(sp.final_price || sp.price).toLocaleString()}
+                                                </div>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 disabled:opacity-50"
+                                                disabled={editAddLoading || Number(sp.stock) < 1}
+                                                onClick={() => addItemToOrder(sp, editAddQty)}
+                                              >
+                                                Add
+                                              </button>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              ) : null}
                             </>
                           );
                         })()}

@@ -192,6 +192,22 @@ export default function StockPage() {
     return Object.entries(map).map(([id, total]) => ({ id, total }));
   }, [specOptions]);
 
+  const stockValueCost = useMemo(() => {
+    return specOptions.reduce((sum, s) => {
+      const qty = Number(s.stock ?? s.quantity_in_stock ?? 0);
+      const cost = Number(s.purchase_price ?? 0);
+      return sum + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(cost) ? cost : 0);
+    }, 0);
+  }, [specOptions]);
+
+  const stockValueSale = useMemo(() => {
+    return specOptions.reduce((sum, s) => {
+      const qty = Number(s.stock ?? s.quantity_in_stock ?? 0);
+      const sale = Number(s.final_price ?? s.price ?? 0);
+      return sum + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(sale) ? sale : 0);
+    }, 0);
+  }, [specOptions]);
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-semibold">Stock Management</h2>
@@ -243,18 +259,28 @@ export default function StockPage() {
                     <option value="">Select Variant...</option>
                     {availableSpecs.map(s => (
                         <option key={s.id} value={s.id}>
-                           {getColorName(s.color_id)} / {getSizeName(s.size_id)} (Qty: {s.quantity_in_stock ?? '?'})
+                           {getColorName(s.color_id)} / {getSizeName(s.size_id)} (Qty: {s.stock ?? s.quantity_in_stock ?? '?'})
                         </option>
                     ))}
                 </select>
             </div>
         </div>
         {selectedProduct && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mt-2">
             <div className="rounded-md border p-3">
               <div className="text-xs text-gray-500">Total Stock</div>
               <div className="text-xl font-semibold text-blue-600">{totalStock}</div>
               <div className="text-xs text-gray-500 mt-1">Product: {selectedProduct?.name}</div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-gray-500">Stock Value (Cost)</div>
+              <div className="text-xl font-semibold text-emerald-700">{stockValueCost.toLocaleString()}</div>
+              <div className="text-[11px] text-gray-500 mt-1">IQD</div>
+            </div>
+            <div className="rounded-md border p-3">
+              <div className="text-xs text-gray-500">Stock Value (Sale)</div>
+              <div className="text-xl font-semibold text-emerald-700">{stockValueSale.toLocaleString()}</div>
+              <div className="text-[11px] text-gray-500 mt-1">IQD</div>
             </div>
             <div className="rounded-md border p-3">
               <div className="text-xs text-gray-500 mb-2">By Color</div>
