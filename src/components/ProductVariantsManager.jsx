@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { api, API_BASE } from '../lib/api';
 import { useToast } from '../store/toast';
+import { useAuth } from '../store/auth';
 
 const ASSET_BASE = API_BASE.endsWith('/public') ? API_BASE.replace(/\/public$/, '') : `${API_BASE}/api`;
 function assetUrl(p) {
@@ -50,6 +51,8 @@ function IconStar() {
 }
 
 export default function ProductVariantsManager({ productId, specs, onReload }) {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [rows, setRows] = useState(specs || []);
   const [colors, setColors] = useState([]);
   const [sizes, setSizes] = useState([]);
@@ -172,7 +175,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
       spec_key: form.spec_key || undefined,
       spec_value: form.spec_value || undefined,
       price: form.price !== '' ? Number(form.price) : Number(basePrice || 0),
-      purchase_price: form.purchase_price !== '' ? Number(form.purchase_price) : (basePurchasePrice != null ? Number(basePurchasePrice) : undefined),
+      purchase_price: isAdmin ? (form.purchase_price !== '' ? Number(form.purchase_price) : (basePurchasePrice != null ? Number(basePurchasePrice) : undefined)) : undefined,
       stock: form.stock !== '' ? Number(form.stock) : 0,
       gender: form.gender || undefined,
       color_id: form.color_id ? Number(form.color_id) : undefined,
@@ -217,7 +220,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
     if (r.spec_key?.trim()) patch.spec_key = r.spec_key.trim();
     if (r.spec_value?.trim()) patch.spec_value = r.spec_value.trim();
     if (r.price != null && String(r.price) !== '') patch.price = Number(r.price);
-    if (r.purchase_price != null && String(r.purchase_price) !== '') patch.purchase_price = Number(r.purchase_price);
+    if (isAdmin && r.purchase_price != null && String(r.purchase_price) !== '') patch.purchase_price = Number(r.purchase_price);
     if (r.stock != null && String(r.stock) !== '') patch.stock = Number(r.stock);
     if (r.gender !== undefined) patch.gender = r.gender;
     if (r.color_id) patch.color_id = Number(r.color_id);
@@ -253,15 +256,17 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
           </div>
         </div>
         <div className="flex gap-2">
-          <button
-            type="button"
-            disabled={backfilling}
-            onClick={backfillPurchasePrices}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:shadow-sm disabled:opacity-50 transition-all"
-          >
-            <IconRefresh />
-            {backfilling ? 'Filling...' : 'Backfill Prices'}
-          </button>
+          {isAdmin ? (
+            <button
+              type="button"
+              disabled={backfilling}
+              onClick={backfillPurchasePrices}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:shadow-sm disabled:opacity-50 transition-all"
+            >
+              <IconRefresh />
+              {backfilling ? 'Filling...' : 'Backfill Prices'}
+            </button>
+          ) : null}
           <button
             onClick={() => setShowCreateForm(!showCreateForm)}
             className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold shadow-lg transition-all duration-200 ${
@@ -402,19 +407,21 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                 />
               </div>
               {/* Purchase Price */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                  Cost Price {basePurchasePrice != null && <span className="text-slate-400 normal-case">(def: {basePurchasePrice.toLocaleString()})</span>}
-                </label>
-                <input
-                  className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={form.purchase_price}
-                  onChange={(e) => updateForm('purchase_price', e.target.value)}
-                />
-              </div>
+              {isAdmin ? (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                    Cost Price {basePurchasePrice != null && <span className="text-slate-400 normal-case">(def: {basePurchasePrice.toLocaleString()})</span>}
+                  </label>
+                  <input
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={form.purchase_price}
+                    onChange={(e) => updateForm('purchase_price', e.target.value)}
+                  />
+                </div>
+              ) : null}
               {/* Stock */}
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Stock</label>
@@ -582,7 +589,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                   <div className="hidden sm:flex items-center gap-5">
                     <div className="text-right">
                       <div className="text-sm font-bold text-emerald-700">{Number(r.price).toLocaleString()} <span className="text-[10px] text-slate-400">IQD</span></div>
-                      {r.purchase_price != null && (
+                      {isAdmin && r.purchase_price != null && (
                         <div className="text-[10px] text-slate-400">Cost: {Number(r.purchase_price).toLocaleString()}</div>
                       )}
                     </div>
@@ -640,10 +647,12 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                           <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Sell Price</label>
                           <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 font-mono" type="number" step="0.01" value={r.price} onChange={(e) => setRows((s) => s.map((x) => x.id === r.id ? { ...x, price: e.target.value } : x))} />
                         </div>
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Cost Price</label>
-                          <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 font-mono" type="number" step="0.01" value={r.purchase_price ?? ''} onChange={(e) => setRows((s) => s.map((x) => x.id === r.id ? { ...x, purchase_price: e.target.value } : x))} />
-                        </div>
+                        {isAdmin ? (
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Cost Price</label>
+                            <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 font-mono" type="number" step="0.01" value={r.purchase_price ?? ''} onChange={(e) => setRows((s) => s.map((x) => x.id === r.id ? { ...x, purchase_price: e.target.value } : x))} />
+                          </div>
+                        ) : null}
                         <div>
                           <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Stock</label>
                           <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 font-mono" type="number" value={r.stock ?? 0} onChange={(e) => setRows((s) => s.map((x) => x.id === r.id ? { ...x, stock: e.target.value } : x))} />

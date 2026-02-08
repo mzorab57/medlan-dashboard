@@ -3,6 +3,7 @@ import { api, API_BASE } from '../../lib/api';
 import { downloadCSV } from '../../lib/csv';
 import { useToast } from '../../store/toast';
 import ProductVariantsManager from '../../components/ProductVariantsManager';
+import { useAuth } from '../../store/auth';
 
 const ASSET_BASE = API_BASE.endsWith('/public') ? API_BASE.replace(/\/public$/, '') : `${API_BASE}/api`;
 
@@ -125,6 +126,8 @@ function IconEye() {
 // ─── Main Component ──────────────────────────────────────────────
 export default function ProductsPage() {
   const { add } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -262,7 +265,7 @@ export default function ProductsPage() {
       subcategory_id: formData.subcategory_id ? Number(formData.subcategory_id) : undefined,
       brand_id: formData.brand_id ? Number(formData.brand_id) : undefined,
       base_price: Number(formData.base_price),
-      purchase_price: Number(formData.purchase_price),
+      purchase_price: isAdmin ? Number(formData.purchase_price) : undefined,
       short_description: formData.short_description || undefined,
       is_active: Number(formData.is_active),
       is_featured: Number(formData.is_featured),
@@ -390,7 +393,7 @@ export default function ProductsPage() {
         { header: 'Name', key: 'name' },
         { header: 'Brand', key: 'brand_name' },
         { header: 'Base Price', key: 'base_price' },
-        { header: 'Purchase Price', key: 'purchase_price' },
+        ...(isAdmin ? [{ header: 'Purchase Price', key: 'purchase_price' }] : []),
         { header: 'Total Stock', key: 'total_stock' },
         { header: 'Active', key: 'is_active' },
       ]);
@@ -542,9 +545,11 @@ export default function ProductsPage() {
                       <th className="px-5 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                         Selling Price
                       </th>
-                      <th className="px-5 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                        Cost Price
-                      </th>
+                      {isAdmin ? (
+                        <th className="px-5 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          Cost Price
+                        </th>
+                      ) : null}
                       <th className="px-5 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
                         Stock
                       </th>
@@ -611,11 +616,13 @@ export default function ProductsPage() {
                         </td>
 
                         {/* Cost Price */}
-                        <td className="px-5 py-3">
-                          <span className="font-medium text-slate-500 text-sm">
-                            {Number(p.purchase_price).toLocaleString()}
-                          </span>
-                        </td>
+                        {isAdmin ? (
+                          <td className="px-5 py-3">
+                            <span className="font-medium text-slate-500 text-sm">
+                              {Number(p.purchase_price).toLocaleString()}
+                            </span>
+                          </td>
+                        ) : null}
 
                         {/* Stock */}
                         <td className="px-5 py-3">
@@ -875,22 +882,24 @@ export default function ProductsPage() {
                         required
                       />
                     </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
-                        Cost Price <span className="text-red-400">*</span>
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-slate-50/50 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 hover:bg-white transition-all"
-                        value={formData.purchase_price}
-                        onChange={(e) =>
-                          setFormData({ ...formData, purchase_price: e.target.value })
-                        }
-                        placeholder="0.00"
-                        required
-                      />
-                    </div>
+                    {isAdmin ? (
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                          Cost Price <span className="text-red-400">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-slate-50/50 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 hover:bg-white transition-all"
+                          value={formData.purchase_price}
+                          onChange={(e) =>
+                            setFormData({ ...formData, purchase_price: e.target.value })
+                          }
+                          placeholder="0.00"
+                          required
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -922,7 +931,7 @@ export default function ProductsPage() {
                           setFormData({ ...formData, is_active: e.target.checked ? 1 : 0 })
                         }
                       />
-                      <div className="w-10 h-6 bg-slate-200 peer-focus:ring-2 peer-focus:ring-blue-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 peer-checked:after:border-emerald-500 transition-colors" />
+                      <div className="w-10 h-6 bg-slate-200 peer-focus:ring-2 peer-focus:ring-blue-500/20 rounded-full peer peer-checked:after:translate-x-full  after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 peer-checked:after:border-emerald-500 transition-colors" />
                     </div>
                     <span className="text-sm font-medium text-slate-600 group-hover:text-slate-800 transition-colors">
                       Active
@@ -939,7 +948,7 @@ export default function ProductsPage() {
                           setFormData({ ...formData, is_featured: e.target.checked ? 1 : 0 })
                         }
                       />
-                      <div className="w-10 h-6 bg-slate-200 peer-focus:ring-2 peer-focus:ring-amber-500/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500 peer-checked:after:border-amber-500 transition-colors" />
+                      <div className="w-10 h-6 bg-slate-200 peer-focus:ring-2 peer-focus:ring-amber-500/20 rounded-full peer peer-checked:after:translate-x-full  after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500 peer-checked:after:border-amber-500 transition-colors" />
                     </div>
                     <span className="text-sm font-medium text-slate-600 group-hover:text-slate-800 transition-colors">
                       Featured
@@ -1054,11 +1063,11 @@ export default function ProductsPage() {
                               value: `${Number(viewData.product?.base_price).toLocaleString()} IQD`,
                               color: 'emerald',
                             },
-                            {
+                            ...(isAdmin ? [{
                               label: 'Purchase Price',
                               value: `${Number(viewData.product?.purchase_price).toLocaleString()} IQD`,
                               color: 'orange',
-                            },
+                            }] : []),
                           ].map((item) => (
                             <div
                               key={item.label}

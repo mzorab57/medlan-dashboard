@@ -146,6 +146,7 @@ function IconArrowRight() {
 // ─── Main Component ─────────────────────────────────────────────────
 export default function DashboardHome() {
   const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -188,8 +189,12 @@ export default function DashboardHome() {
         const tp = await api.get('/api/dashboard/top-products');
         if (mounted) setTopProducts(tp.data || tp);
 
-        const rv = await api.get(`/api/dashboard/revenue?from=${from}&to=${to}`);
-        if (mounted) setRevenue(rv.data || rv);
+        if (user?.role === 'admin') {
+          const rv = await api.get(`/api/dashboard/revenue?from=${from}&to=${to}`);
+          if (mounted) setRevenue(rv.data || rv);
+        } else if (mounted) {
+          setRevenue([]);
+        }
 
         const ord = await api.get('/api/orders');
         if (mounted) {
@@ -280,6 +285,7 @@ export default function DashboardHome() {
     // { label: 'Users', key: 'users', icon: <IconUsers />, gradient: 'from-purple-500 to-purple-600', bg: 'bg-purple-50', text: 'text-purple-700', iconBg: 'bg-purple-100' },
     { label: 'Active Promos', key: 'promotions_active', icon: <IconTag />, gradient: 'from-pink-500 to-pink-600', bg: 'bg-pink-50', text: 'text-pink-700', iconBg: 'bg-pink-100' },
   ];
+  const visibleCardConfigs = isAdmin ? cardConfigs : cardConfigs.filter((c) => !c.isMoney);
 
   const statusColors = {
     pending: 'bg-amber-100 text-amber-800',
@@ -310,6 +316,7 @@ export default function DashboardHome() {
         </div>
 
         {/* ─── Revenue & Expenses Hero Cards ─────────────────── */}
+        {isAdmin && (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
           {/* Revenue Card */}
           <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-600 via-blue-700 to-indigo-800 p-6 text-white shadow-xl shadow-blue-500/20">
@@ -429,12 +436,13 @@ export default function DashboardHome() {
             </div>
           )}
         </div>
+        )}
 
         {/* ─── Stats Grid ────────────────────────────────────── */}
         <div>
           <h3 className="text-lg font-semibold text-slate-700 mb-4">Overview</h3>
           <div className="grid grid-cols-2  lg:grid-cols-4  gap-3">
-            {cardConfigs.map((c, idx) => {
+            {visibleCardConfigs.map((c, idx) => {
               const value = summary?.[c.key];
               return (
                 <div
@@ -523,9 +531,11 @@ export default function DashboardHome() {
 
         {/* ─── Charts ─────────────────────────────────────────── */}
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          <div className="rounded-2xl bg-white border border-slate-100 p-6 shadow-sm">
-            <RevenueChart data={revenue} />
-          </div>
+          {isAdmin ? (
+            <div className="rounded-2xl bg-white border border-slate-100 p-6 shadow-sm">
+              <RevenueChart data={revenue} />
+            </div>
+          ) : null}
           <div className="rounded-2xl bg-white border border-slate-100 p-6 shadow-sm">
             <TopProductsChart data={topProducts} />
           </div>
@@ -554,7 +564,7 @@ export default function DashboardHome() {
                   <th className="text-left px-6 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">#</th>
                   <th className="text-left px-6 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Customer</th>
                   <th className="text-left px-6 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Phone</th>
-                  <th className="text-left px-6 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Total</th>
+                  {isAdmin ? <th className="text-left px-6 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Total</th> : null}
                   <th className="text-left px-6 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
                   <th className="text-left px-6 py-3.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</th>
                 </tr>
@@ -580,10 +590,12 @@ export default function DashboardHome() {
                     <td className="px-6 py-4">
                       <span className="text-sm text-slate-500 font-mono">{o.phone_number}</span>
                     </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-bold text-slate-800">{formatCurrency(o.total_price)}</div>
-                      <div className="text-xs text-slate-400">{formatUSD(o.total_price)}</div>
-                    </td>
+                    {isAdmin ? (
+                      <td className="px-6 py-4">
+                        <div className="text-sm font-bold text-slate-800">{formatCurrency(o.total_price)}</div>
+                        <div className="text-xs text-slate-400">{formatUSD(o.total_price)}</div>
+                      </td>
+                    ) : null}
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${statusColors[o.status?.toLowerCase()] || 'bg-slate-100 text-slate-700'}`}>
                         <span className="w-1.5 h-1.5 rounded-full bg-current opacity-60" />
@@ -597,7 +609,7 @@ export default function DashboardHome() {
                 ))}
                 {ordersRecent.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-12 text-center">
+                    <td colSpan={isAdmin ? 6 : 5} className="px-6 py-12 text-center">
                       <div className="flex flex-col items-center gap-2">
                         <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
                           <IconShoppingCart />

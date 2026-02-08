@@ -3,6 +3,7 @@ import { api, API_BASE } from '../../lib/api';
 import { downloadCSV } from '../../lib/csv';
 import { useToast } from '../../store/toast';
 import { STATUSES, normalizeStatus, canTransition, isLocked, statusBgClass } from '../../lib/status';
+import { useAuth } from '../../store/auth';
 
 const SOURCES = ['', 'website', 'whatsapp', 'instagram'];
 const ASSET_BASE = API_BASE.endsWith('/public') ? API_BASE.replace(/\/public$/, '') : `${API_BASE}/api`;
@@ -29,6 +30,8 @@ function toNum(v) {
 
 export default function OrdersPage() {
   const { add } = useToast();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   
   // --- List State ---
   const [items, setItems] = useState([]);
@@ -782,7 +785,8 @@ export default function OrdersPage() {
                                   <div>
                                     <div className="text-xs font-bold text-gray-600 uppercase">Discount</div>
                                     <div className="text-sm text-gray-600">
-                                      Max: {maxDiscount.toLocaleString()} • Gross profit: {grossProfit.toLocaleString()} • Net profit: {netProfit.toLocaleString()}
+                                      Max: {maxDiscount.toLocaleString()}
+                                      {isAdmin ? ` • Gross profit: ${grossProfit.toLocaleString()} • Net profit: ${netProfit.toLocaleString()}` : ''}
                                       {queuedDiscount != null && editable ? ` • Queued: ${Number(queuedDiscount).toLocaleString()}` : ''}
                                     </div>
                                   </div>
@@ -1182,7 +1186,7 @@ export default function OrdersPage() {
                                           </button>
                                         </div>
                                         <div className="mt-1 text-[11px] text-gray-400">
-                                          {it.purchase_price != null ? `Purchase: ${toNum(it.purchase_price).toLocaleString()} • ` : ''}
+                                          {isAdmin && it.purchase_price != null ? `Purchase: ${toNum(it.purchase_price).toLocaleString()} • ` : ''}
                                           Promo: {toNum(it.promo_price ?? it.base_price ?? it.price).toLocaleString()}
                                         </div>
                                       </div>
