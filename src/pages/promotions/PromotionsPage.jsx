@@ -20,9 +20,14 @@ export default function PromotionsPage() {
   const [formData, setFormData] = useState({
     id: null,
     name: '',
+    coupon_code: '',
     description: '',
     discount_type: 'percentage',
     discount_value: '',
+    usage_limit: '',
+    min_order_amount: 0,
+    display_limit: '',
+    extra_pool_limit: '',
     start_date: '',
     end_date: '',
     is_active: 1,
@@ -33,6 +38,8 @@ export default function PromotionsPage() {
   const [manageId, setManageId] = useState(null);
   const [manageData, setManageData] = useState(null); // { promotion: {}, items: [] }
   const [manageLoading, setManageLoading] = useState(false);
+  const [overrideEdits, setOverrideEdits] = useState({});
+  const [addOverridePrice, setAddOverridePrice] = useState({});
   
   // --- Manage: Search & Add Logic ---
   const [specSearch, setSpecSearch] = useState('');
@@ -68,7 +75,9 @@ export default function PromotionsPage() {
     setModalMode('create');
     setFormData({
       id: null, name: '', description: '', discount_type: 'percentage',
-      discount_value: '', start_date: '', end_date: '', is_active: 1, priority: 0
+      discount_value: '', coupon_code: '', usage_limit: '', min_order_amount: 0,
+      display_limit: '', extra_pool_limit: '',
+      start_date: '', end_date: '', is_active: 1, priority: 0
     });
     setModalOpen(true);
   }
@@ -78,9 +87,14 @@ export default function PromotionsPage() {
     setFormData({
       id: p.id,
       name: p.name,
+      coupon_code: p.coupon_code || '',
       description: p.description || '',
       discount_type: p.discount_type,
       discount_value: p.discount_value,
+      usage_limit: p.usage_limit ?? '',
+      min_order_amount: p.min_order_amount ?? 0,
+      display_limit: p.display_limit ?? '',
+      extra_pool_limit: p.extra_pool_limit ?? '',
       start_date: p.start_date,
       end_date: p.end_date,
       is_active: p.is_active,
@@ -94,9 +108,14 @@ export default function PromotionsPage() {
     try {
       const payload = {
         name: formData.name,
+        coupon_code: formData.discount_type === 'campaign' ? null : ((formData.coupon_code || '').trim() || null),
         description: formData.description || undefined,
         discount_type: formData.discount_type === 'amount' ? 'fixed' : formData.discount_type,
-        discount_value: Number(formData.discount_value),
+        discount_value: formData.discount_type === 'campaign' ? 0 : Number(formData.discount_value),
+        usage_limit: formData.usage_limit === '' ? null : Number(formData.usage_limit),
+        min_order_amount: Number(formData.min_order_amount || 0),
+        display_limit: formData.discount_type === 'campaign' ? (formData.display_limit === '' ? null : Number(formData.display_limit)) : null,
+        extra_pool_limit: formData.discount_type === 'campaign' ? (formData.extra_pool_limit === '' ? null : Number(formData.extra_pool_limit)) : null,
         start_date: formData.start_date,
         end_date: formData.end_date,
         is_active: Number(formData.is_active),
@@ -145,6 +164,14 @@ export default function PromotionsPage() {
     try {
       const res = await api.get(`/api/promotions?id=${id}`);
       setManageData(res);
+      const list = res?.items || [];
+      const next = {};
+      for (const it of list) {
+        const sid = it.product_spec_id || it.id;
+        if (sid != null) next[sid] = it.override_price ?? '';
+      }
+      setOverrideEdits(next);
+      setAddOverridePrice({});
     } catch (e) { add(e.message, 'error'); }
     finally { setManageLoading(false); }
   }
@@ -153,6 +180,13 @@ export default function PromotionsPage() {
     if (!manageId) return;
     const res = await api.get(`/api/promotions?id=${manageId}`);
     setManageData(res);
+    const list = res?.items || [];
+    const next = {};
+    for (const it of list) {
+      const sid = it.product_spec_id || it.id;
+      if (sid != null) next[sid] = it.override_price ?? '';
+    }
+    setOverrideEdits(next);
   }
 
   // Search Products
@@ -184,9 +218,36 @@ export default function PromotionsPage() {
   // Add Item
   async function addItem(specId) {
     try {
-      await api.post(`/api/promotions/${manageId}/items`, { product_spec_id: Number(specId) });
+      const promo = manageData?.promotion;
+      const isCampaign = promo?.discount_type === 'campaign';
+      const displayLimit = isCampaign && promo?.display_limit != null ? Number(promo.display_limit) : 0;
+      const extraPool = isCampaign && promo?.extra_pool_limit != null ? Number(promo.extra_pool_limit) : 0;
+      const hardLimit = isCampaign && displayLimit > 0 ? displayLimit + Math.max(0, extraPool) : null;
+      if (isCampaign && hardLimit != null && (manageData?.items?.length || 0) >= hardLimit) {
+        add('Campaign limit reached', 'error');
+        return;
+      }
+      const override = addOverridePrice?.[specId];
+      if (isCampaign && (override == null || override === '')) {
+        add('Override price required', 'error');
+        return;
+      }
+      await api.post(`/api/promotions/${manageId}/items`, {
+        product_spec_id: Number(specId),
+        override_price: isCampaign && override !== '' && override != null ? Number(override) : null,
+      });
       refreshManage();
       add('Item added', 'success');
+    } catch (e) { add(e.message, 'error'); }
+  }
+
+  async function updateOverridePrice(specId) {
+    try {
+      await api.patch(`/api/promotions/${manageId}/items?spec_id=${specId}`, {
+        override_price: overrideEdits?.[specId] === '' ? null : Number(overrideEdits?.[specId]),
+      });
+      refreshManage();
+      add('Saved', 'success');
     } catch (e) { add(e.message, 'error'); }
   }
 
@@ -198,6 +259,19 @@ export default function PromotionsPage() {
       add('Deleting item...', 'error', 1500);
     } catch (e) { add(e.message, 'error'); }
   }
+
+  const managePromotion = manageData?.promotion;
+  const isCampaignManage = managePromotion?.discount_type === 'campaign';
+  const displayLimitManage = isCampaignManage && managePromotion?.display_limit != null ? Number(managePromotion.display_limit) : 0;
+  const extraPoolManage = isCampaignManage && managePromotion?.extra_pool_limit != null ? Number(managePromotion.extra_pool_limit) : 0;
+  const hardLimitManage = isCampaignManage && displayLimitManage > 0 ? displayLimitManage + Math.max(0, extraPoolManage) : null;
+  const orderedManageItems = (manageData?.items || []).slice().sort((a, b) => (Number(a.id || 0) - Number(b.id || 0)));
+  const displayItemsManage = isCampaignManage && displayLimitManage > 0 ? orderedManageItems.slice(0, displayLimitManage) : orderedManageItems;
+  const extraItemsManage = isCampaignManage && displayLimitManage > 0 ? orderedManageItems.slice(displayLimitManage, hardLimitManage ?? undefined) : [];
+  const totalCampaignPrice = isCampaignManage && displayLimitManage > 0
+    ? displayItemsManage.reduce((sum, it) => sum + (Number(it.override_price) || 0), 0)
+    : 0;
+  const canAddMoreCampaign = hardLimitManage == null ? true : orderedManageItems.length < hardLimitManage;
 
 
   return (
@@ -235,6 +309,7 @@ export default function PromotionsPage() {
                 <tr>
                   <th className="px-4 py-3 text-left">ID</th>
                   <th className="px-4 py-3 text-left">Name</th>
+                  <th className="px-4 py-3 text-left">Coupon</th>
                   <th className="px-4 py-3 text-left">Discount</th>
                   <th className="px-4 py-3 text-left">Duration</th>
                   <th className="px-4 py-3 text-left">Priority</th>
@@ -248,9 +323,24 @@ export default function PromotionsPage() {
                     <td className="px-4 py-3 font-medium text-gray-500">{i+1}</td>
                     <td className="px-4 py-3 font-semibold text-gray-800">{p.name}</td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${p.discount_type === 'percentage' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
-                        {p.discount_value}{p.discount_type === 'percentage' ? '%' : ' IQD'}
-                      </span>
+                      {p.coupon_code ? (
+                        <span className="px-2 py-1 rounded text-xs font-mono bg-slate-100 text-slate-700 border">
+                          {p.coupon_code}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {p.discount_type === 'campaign' ? (
+                        <span className="px-2 py-1 rounded text-xs font-medium bg-amber-100 text-amber-700">
+                          Campaign
+                        </span>
+                      ) : (
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${p.discount_type === 'percentage' ? 'bg-purple-100 text-purple-700' : 'bg-green-100 text-green-700'}`}>
+                          {p.discount_value}{p.discount_type === 'percentage' ? '%' : ' IQD'}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-600 text-xs">
                       {p.start_date} <span className="text-gray-400">to</span> {p.end_date}
@@ -292,16 +382,49 @@ export default function PromotionsPage() {
                 <label className="text-xs text-gray-500 block mb-1">Name</label>
                 <input className="w-full rounded-md border px-3 py-2" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} required />
               </div>
+              <div className="md:col-span-2">
+                <label className="text-xs text-gray-500 block mb-1">Coupon Code</label>
+                <input className="w-full rounded-md border px-3 py-2 font-mono" value={formData.coupon_code} onChange={(e) => setFormData({...formData, coupon_code: e.target.value})} placeholder="e.g. NEW10" />
+              </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Type</label>
                 <select className="w-full rounded-md border px-3 py-2" value={formData.discount_type} onChange={(e) => setFormData({...formData, discount_type: e.target.value})}>
                   <option value="percentage">Percentage (%)</option>
                   <option value="fixed">Fixed Amount</option>
+                  <option value="campaign">Campaign (override price)</option>
                 </select>
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Value</label>
-                <input type="number" step="0.01" className="w-full rounded-md border px-3 py-2" value={formData.discount_value} onChange={(e) => setFormData({...formData, discount_value: e.target.value})} required />
+                <input
+                  type="number"
+                  step="0.01"
+                  className="w-full rounded-md border px-3 py-2"
+                  value={formData.discount_type === 'campaign' ? 0 : formData.discount_value}
+                  onChange={(e) => setFormData({...formData, discount_value: e.target.value})}
+                  required={formData.discount_type !== 'campaign'}
+                  disabled={formData.discount_type === 'campaign'}
+                />
+              </div>
+              {formData.discount_type === 'campaign' ? (
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Display Limit</label>
+                    <input type="number" min="0" step="1" className="w-full rounded-md border px-3 py-2" value={formData.display_limit} onChange={(e) => setFormData({...formData, display_limit: e.target.value})} placeholder="e.g. 10" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Extra Pool</label>
+                    <input type="number" min="0" step="1" className="w-full rounded-md border px-3 py-2" value={formData.extra_pool_limit} onChange={(e) => setFormData({...formData, extra_pool_limit: e.target.value})} placeholder="e.g. 5" />
+                  </div>
+                </>
+              ) : null}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Usage Limit</label>
+                <input type="number" min="0" step="1" className="w-full rounded-md border px-3 py-2" value={formData.usage_limit} onChange={(e) => setFormData({...formData, usage_limit: e.target.value})} placeholder="Unlimited" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Min Order Amount</label>
+                <input type="number" min="0" step="0.01" className="w-full rounded-md border px-3 py-2" value={formData.min_order_amount} onChange={(e) => setFormData({...formData, min_order_amount: e.target.value})} />
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Start Date</label>
@@ -343,6 +466,14 @@ export default function PromotionsPage() {
                <div>
                   <h3 className="text-lg font-bold">Manage Promotion Items</h3>
                   <div className="text-sm text-gray-500">{manageData?.promotion?.name}</div>
+                  {isCampaignManage && displayLimitManage > 0 ? (
+                    <div className="mt-1 text-xs text-gray-500">
+                      Display: {Math.min(displayItemsManage.length, displayLimitManage)}/{displayLimitManage}
+                      {extraPoolManage > 0 ? ` • Extra: ${extraItemsManage.length}/${extraPoolManage}` : ''}
+                      {hardLimitManage != null ? ` • Max: ${hardLimitManage}` : ''}
+                      {` • Total: ${Number(totalCampaignPrice).toLocaleString()}`}
+                    </div>
+                  ) : null}
                </div>
                <button onClick={() => setManageId(null)} className="text-gray-500 hover:text-gray-800 text-2xl">&times;</button>
             </div>
@@ -352,35 +483,132 @@ export default function PromotionsPage() {
                 
                 {/* LEFT: CURRENT ITEMS */}
                 <div className="flex-1 overflow-y-auto p-4 border-r border-gray-100">
-                    <h4 className="text-sm font-bold text-gray-700 mb-3 sticky top-0 bg-white z-10">
-                        Included Items ({manageData?.items?.length || 0})
-                    </h4>
-                    {manageLoading ? (
-                        <div className="text-center py-10">Loading...</div>
-                    ) : (manageData?.items || []).length === 0 ? (
-                        <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed">No items in this promotion yet.</div>
+                    {isCampaignManage && displayLimitManage > 0 ? (
+                      <>
+                        <h4 className="text-sm font-bold text-gray-700 mb-3 sticky top-0 bg-white z-10">
+                          Display Items ({displayItemsManage.length}/{displayLimitManage})
+                        </h4>
+                        {manageLoading ? (
+                          <div className="text-center py-10">Loading...</div>
+                        ) : displayItemsManage.length === 0 ? (
+                          <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed">No items in display yet.</div>
+                        ) : (
+                          <div className="space-y-2">
+                            {displayItemsManage.map(it => (
+                              <div key={it.id || it.product_spec_id} className="flex items-center justify-between p-3 rounded border hover:shadow-sm bg-white">
+                                <div>
+                                  <div className="font-medium text-sm">{it.product_name}</div>
+                                  <div className="text-xs text-gray-500">
+                                    {it.color_name} / {it.size_name} <span className="mx-1">•</span> Price: {it.price?.toLocaleString()}
+                                  </div>
+                                  <div className="mt-2 flex items-center gap-2">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      className="w-36 rounded-md border px-2 py-1 text-xs font-mono"
+                                      value={overrideEdits?.[it.product_spec_id] ?? ''}
+                                      onChange={(e) => setOverrideEdits((s) => ({ ...s, [it.product_spec_id]: e.target.value }))}
+                                      placeholder="Override price"
+                                    />
+                                    <button
+                                      onClick={() => updateOverridePrice(it.product_spec_id)}
+                                      className="text-xs bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700"
+                                    >
+                                      Save
+                                    </button>
+                                  </div>
+                                </div>
+                                <button onClick={() => removeItem(it.product_spec_id || it.id)} className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded border border-red-100 hover:bg-red-50">
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {extraPoolManage > 0 ? (
+                          <>
+                            <h4 className="text-sm font-bold text-gray-700 mt-6 mb-3 sticky top-0 bg-white z-10">
+                              Extra Pool ({extraItemsManage.length}/{extraPoolManage})
+                            </h4>
+                            {extraItemsManage.length === 0 ? (
+                              <div className="text-center py-6 text-gray-400 bg-gray-50 rounded-lg border border-dashed">No items in extra pool yet.</div>
+                            ) : (
+                              <div className="space-y-2">
+                                {extraItemsManage.map(it => (
+                                  <div key={it.id || it.product_spec_id} className="flex items-center justify-between p-3 rounded border hover:shadow-sm bg-white">
+                                    <div>
+                                      <div className="font-medium text-sm">{it.product_name}</div>
+                                      <div className="text-xs text-gray-500">
+                                        {it.color_name} / {it.size_name} <span className="mx-1">•</span> Price: {it.price?.toLocaleString()}
+                                      </div>
+                                      <div className="mt-2 flex items-center gap-2">
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          className="w-36 rounded-md border px-2 py-1 text-xs font-mono"
+                                          value={overrideEdits?.[it.product_spec_id] ?? ''}
+                                          onChange={(e) => setOverrideEdits((s) => ({ ...s, [it.product_spec_id]: e.target.value }))}
+                                          placeholder="Override price"
+                                        />
+                                        <button
+                                          onClick={() => updateOverridePrice(it.product_spec_id)}
+                                          className="text-xs bg-emerald-600 text-white px-2 py-1 rounded hover:bg-emerald-700"
+                                        >
+                                          Save
+                                        </button>
+                                      </div>
+                                    </div>
+                                    <button onClick={() => removeItem(it.product_spec_id || it.id)} className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded border border-red-100 hover:bg-red-50">
+                                      Remove
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
+                        ) : null}
+                      </>
                     ) : (
-                        <div className="space-y-2">
-                           {manageData.items.map(it => (
-                               <div key={it.id || it.product_spec_id} className="flex items-center justify-between p-3 rounded border hover:shadow-sm bg-white">
-                                   <div>
-                                       <div className="font-medium text-sm">{it.product_name}</div>
-                                       <div className="text-xs text-gray-500">
-                                           {it.color_name} / {it.size_name} <span className="mx-1">•</span> Price: {it.price?.toLocaleString()}
-                                       </div>
-                                   </div>
-                                   <button onClick={() => removeItem(it.product_spec_id || it.id)} className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded border border-red-100 hover:bg-red-50">
-                                       Remove
-                                   </button>
-                               </div>
-                           ))}
-                        </div>
+                      <>
+                        <h4 className="text-sm font-bold text-gray-700 mb-3 sticky top-0 bg-white z-10">
+                          Included Items ({manageData?.items?.length || 0})
+                        </h4>
+                        {manageLoading ? (
+                          <div className="text-center py-10">Loading...</div>
+                        ) : (manageData?.items || []).length === 0 ? (
+                          <div className="text-center py-10 text-gray-400 bg-gray-50 rounded-lg border border-dashed">No items in this promotion yet.</div>
+                        ) : (
+                          <div className="space-y-2">
+                            {manageData.items.map(it => (
+                              <div key={it.id || it.product_spec_id} className="flex items-center justify-between p-3 rounded border hover:shadow-sm bg-white">
+                                <div>
+                                  <div className="font-medium text-sm">{it.product_name}</div>
+                                  <div className="text-xs text-gray-500">
+                                    {it.color_name} / {it.size_name} <span className="mx-1">•</span> Price: {it.price?.toLocaleString()}
+                                  </div>
+                                </div>
+                                <button onClick={() => removeItem(it.product_spec_id || it.id)} className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded border border-red-100 hover:bg-red-50">
+                                  Remove
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </>
                     )}
                 </div>
 
                 {/* RIGHT: ADD ITEMS */}
                 <div className="flex-1 overflow-y-auto p-4 bg-gray-50/50">
-                    <h4 className="text-sm font-bold text-gray-700 mb-3">Add New Items</h4>
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="text-sm font-bold text-gray-700">Add New Items</h4>
+                      {isCampaignManage && hardLimitManage != null ? (
+                        <div className="text-xs text-gray-500">
+                          {orderedManageItems.length}/{hardLimitManage}
+                        </div>
+                      ) : null}
+                    </div>
                     
                     {/* Search Bar */}
                     <div className="mb-4">
@@ -428,7 +656,25 @@ export default function PromotionsPage() {
                                                     {isAdded ? (
                                                         <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">Added</span>
                                                     ) : (
-                                                        <button onClick={() => addItem(sp.id)} className="text-xs bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700">Add</button>
+                                                      <div className="flex items-center gap-2">
+                                                        {manageData?.promotion?.discount_type === 'campaign' ? (
+                                                          <input
+                                                            type="number"
+                                                            step="0.01"
+                                                            className="w-28 rounded-md border px-2 py-1 text-xs font-mono"
+                                                            value={addOverridePrice?.[sp.id] ?? ''}
+                                                            onChange={(e) => setAddOverridePrice((s) => ({ ...s, [sp.id]: e.target.value }))}
+                                                            placeholder="Price"
+                                                          />
+                                                        ) : null}
+                                                        <button
+                                                          onClick={() => addItem(sp.id)}
+                                                          disabled={isCampaignManage && !canAddMoreCampaign}
+                                                          className={`text-xs px-3 py-1 rounded ${isCampaignManage && !canAddMoreCampaign ? 'bg-gray-300 text-gray-600 cursor-not-allowed' : 'bg-blue-600 text-white hover:bg-blue-700'}`}
+                                                        >
+                                                          Add
+                                                        </button>
+                                                      </div>
                                                     )}
                                                 </div>
                                             )

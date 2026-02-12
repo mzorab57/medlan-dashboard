@@ -68,10 +68,17 @@ export default function OrdersPage() {
     phone_number: '',
     address: '',
     order_source: 'whatsapp',
+    campaign_id: '',
     items: [],
     delivery_city_id: '',
     delivery_paid_by: 'medlan'
   });
+
+  const [campaigns, setCampaigns] = useState([]);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [createCampaignLoading, setCreateCampaignLoading] = useState(false);
+  const [createCampaignData, setCreateCampaignData] = useState(null);
+  const [createCampaignSelected, setCreateCampaignSelected] = useState({});
   
   // --- Search & Specs State ---
   const [specSearch, setSpecSearch] = useState('');
@@ -134,6 +141,24 @@ export default function OrdersPage() {
   useEffect(() => {
     fetchDeliveryCities();
   }, [fetchDeliveryCities]);
+
+  useEffect(() => {
+    if (!createOpen) return;
+    let mounted = true;
+    (async () => {
+      setCampaignsLoading(true);
+      try {
+        const res = await api.get('/api/campaigns?active=1');
+        const list = res?.data || res || [];
+        if (mounted) setCampaigns(Array.isArray(list) ? list : []);
+      } catch {
+        if (mounted) setCampaigns([]);
+      } finally {
+        if (mounted) setCampaignsLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [createOpen]);
 
   // 2. Optimized Summary Fetcher (Better to move to Backend)
   // This still fetches pages but we keep it separated to not block UI
@@ -457,9 +482,103 @@ export default function OrdersPage() {
       });
   }
 
+  function clearCreateCampaign(keepCustomerFields = true) {
+    setCreateCampaignData(null);
+    setCreateCampaignSelected({});
+    setSelectedProduct(null);
+    setSpecSearch('');
+    setSpecResults([]);
+    setCreateData((s) => ({
+      ...(keepCustomerFields ? s : {
+        customer_name: '',
+        phone_number: '',
+        address: '',
+        order_source: 'whatsapp',
+        delivery_city_id: '',
+        delivery_paid_by: 'medlan',
+      }),
+      campaign_id: '',
+      items: [],
+    }));
+  }
+
+  function rebuildCampaignCart(data, selectedMap) {
+    const display = Array.isArray(data?.display_items) ? data.display_items : [];
+    const extra = Array.isArray(data?.extra_pool_items) ? data.extra_pool_items : [];
+    const byId = {};
+    [...display, ...extra].forEach((it) => { byId[Number(it.product_spec_id)] = it; });
+    const sel = selectedMap || {};
+    const out = [];
+    const addItem = (it) => {
+      const specId = Number(it.product_spec_id);
+      if (!sel[specId]) return;
+      const overridePrice = toNum(it.override_price);
+      out.push({
+        product_spec_id: specId,
+        product_name: it.product_name,
+        color_name: it.color_name || it.color_id,
+        size_name: it.size_name || it.size_id,
+        price: overridePrice,
+        promo_price: overridePrice,
+        base_price: toNum(it.price),
+        purchase_price: null,
+        promo_discount_amount: Math.max(0, toNum(it.price) - overridePrice),
+        quantity: 1,
+        stock: it.stock,
+      });
+    };
+    display.forEach(addItem);
+    extra.forEach(addItem);
+    return out;
+  }
+
+  async function selectCreateCampaign(nextId) {
+    const idNum = Number(nextId || 0);
+    if (!idNum) {
+      clearCreateCampaign(true);
+      return;
+    }
+    setCreateCampaignLoading(true);
+    try {
+      const res = await api.get(`/api/campaigns/${idNum}`);
+      setCreateCampaignData(res);
+      const display = Array.isArray(res?.display_items) ? res.display_items : [];
+      const initial = {};
+      display.forEach((it) => { initial[Number(it.product_spec_id)] = true; });
+      setCreateCampaignSelected(initial);
+      setCreateData((s) => ({
+        ...s,
+        campaign_id: String(idNum),
+        items: rebuildCampaignCart(res, initial),
+      }));
+    } catch (e) {
+      add(e.message || 'Failed to load campaign', 'error');
+      clearCreateCampaign(true);
+    } finally {
+      setCreateCampaignLoading(false);
+    }
+  }
+
   async function submitOrder(e) {
       e.preventDefault();
       try {
+          if (createData.campaign_id && createCampaignData) {
+            const constraints = createCampaignData.constraints || {};
+            const displayLimit = Number(constraints.display_limit || 0);
+            const extraLimit = Number(constraints.extra_pool_limit || 0);
+            const minCount = Number(constraints.min_selectable_count || 0);
+            const maxCount = Number(constraints.max_selectable_count || displayLimit || 0);
+            const extraItems = Array.isArray(createCampaignData.extra_pool_items) ? createCampaignData.extra_pool_items : [];
+            const extraSet = {};
+            extraItems.forEach((it) => { extraSet[Number(it.product_spec_id)] = true; });
+            const selectedCount = createData.items.length;
+            const extraSelected = createData.items.filter((it) => extraSet[Number(it.product_spec_id)]).length;
+            const valid = selectedCount >= minCount && selectedCount <= maxCount && extraSelected <= extraLimit;
+            if (!valid) {
+              add('Campaign selection is not valid', 'error');
+              return;
+            }
+          }
           const cartTotal = createData.items.reduce((sum, it) => sum + toNum(it.price) * toNum(it.quantity), 0);
           const isWebsite = String(createData.order_source || '').toLowerCase() === 'website';
           const canToggle = !isWebsite && cartTotal >= DELIVERY_FREE_THRESHOLD;
@@ -487,6 +606,7 @@ export default function OrdersPage() {
               phone_number: createData.phone_number,
               address: stripMetaFromAddress(createData.address),
               order_source: normalizeSource(createData.order_source),
+              campaign_id: createData.campaign_id ? Number(createData.campaign_id) : undefined,
               items: createData.items.map(i => ({
                 product_spec_id: i.product_spec_id,
                 quantity: i.quantity,
@@ -498,11 +618,14 @@ export default function OrdersPage() {
           await api.post('/api/orders', payload);
           add('Order created successfully', 'success');
           setCreateOpen(false);
+          setCreateCampaignData(null);
+          setCreateCampaignSelected({});
           setCreateData({
             customer_name: '',
             phone_number: '',
             address: '',
             order_source: 'whatsapp',
+            campaign_id: '',
             items: [],
             delivery_city_id: '',
             delivery_paid_by: 'medlan',
@@ -646,6 +769,7 @@ export default function OrdersPage() {
                   <th className="px-4 py-3 text-left">#ID</th>
                   <th className="px-4 py-3 text-left">Customer</th>
                   <th className="px-4 py-3 text-left">Source</th>
+                  <th className="px-4 py-3 text-left">Campaign</th>
                   <th className="px-4 py-3 text-left">Total</th>
                   <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-left">Date</th>
@@ -668,6 +792,15 @@ export default function OrdersPage() {
                         }`}>
                             {displaySource(o.order_source)}
                         </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {o.campaign_id ? (
+                        <span className="text-xs px-2 py-1 rounded border bg-amber-50 text-amber-800 border-amber-200">
+                          {o.campaign_name || `#${o.campaign_id}`}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3 font-semibold">{Number(o.total_price).toLocaleString()}</td>
                     <td className="px-4 py-3">
@@ -709,7 +842,14 @@ export default function OrdersPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" style={{marginTop:'0px'}}>
           <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
             <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
-                <h3 className="text-lg font-bold">Order Details #{viewId}</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-lg font-bold">Order Details #{viewId}</h3>
+                  {viewData?.order?.campaign_id ? (
+                    <span className="text-xs px-2 py-1 rounded border bg-amber-50 text-amber-800 border-amber-200">
+                      Campaign: {viewData?.order?.campaign_name || `#${viewData?.order?.campaign_id}`}
+                    </span>
+                  ) : null}
+                </div>
                 <button onClick={() => setViewId(null)} className="text-2xl text-gray-400 hover:text-gray-600">&times;</button>
             </div>
             
@@ -729,6 +869,16 @@ export default function OrdersPage() {
                                 <div className="text-gray-500 text-xs uppercase">Shipping</div>
                                 <div>{stripMetaFromAddress(viewData.order?.address) || 'No address provided'}</div>
                                 <div className={`mt-1 inline-block px-2 py-0.5 rounded text-xs ${statusBgClass(viewData.order?.status)}`}>{viewData.order?.status}</div>
+                                {viewData?.order?.campaign_id ? (
+                                  <div className="mt-2">
+                                    <span className="text-[11px] text-gray-500 uppercase">Campaign</span>
+                                    <div className="mt-1">
+                                      <span className="text-xs px-2 py-1 rounded border bg-amber-50 text-amber-800 border-amber-200">
+                                        {viewData?.order?.campaign_name || `#${viewData?.order?.campaign_id}`}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ) : null}
                             </div>
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
@@ -1066,7 +1216,7 @@ export default function OrdersPage() {
           <div className="bg-white w-full max-w-5xl rounded-xl shadow-2xl h-[90vh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b flex justify-between items-center bg-gray-50">
                 <h3 className="text-lg font-bold">New Order</h3>
-                <button onClick={() => setCreateOpen(false)} className="text-2xl text-gray-400 hover:text-gray-600">&times;</button>
+                <button onClick={() => { setCreateOpen(false); clearCreateCampaign(false); }} className="text-2xl text-gray-400 hover:text-gray-600">&times;</button>
             </div>
 
             <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
@@ -1080,6 +1230,118 @@ export default function OrdersPage() {
                         <select className="w-full rounded border px-3 py-2 text-sm" value={createData.order_source} onChange={e => setCreateData({...createData, order_source: e.target.value})}>
                             {SOURCES.filter(Boolean).map(s => <option key={s} value={s}>{s}</option>)}
                         </select>
+                        <div className="rounded-lg border bg-white p-3 space-y-2">
+                          <div className="text-xs font-bold text-gray-600 uppercase">Campaign</div>
+                          <div className="flex items-center gap-2">
+                            <select
+                              className="w-full rounded border px-3 py-2 text-sm"
+                              value={createData.campaign_id}
+                              onChange={(e) => selectCreateCampaign(e.target.value)}
+                              disabled={campaignsLoading || createCampaignLoading}
+                            >
+                              <option value="">No campaign</option>
+                              {(campaigns || []).map((c) => (
+                                <option key={c.id} value={c.id}>{c.name}</option>
+                              ))}
+                            </select>
+                            {createData.campaign_id ? (
+                              <button
+                                type="button"
+                                className="px-3 py-2 text-sm border rounded hover:bg-gray-50"
+                                onClick={() => clearCreateCampaign(true)}
+                                disabled={createCampaignLoading}
+                              >
+                                Clear
+                              </button>
+                            ) : null}
+                          </div>
+                          {campaignsLoading ? <div className="text-xs text-gray-500">Loading campaigns...</div> : null}
+                          {createCampaignLoading ? <div className="text-xs text-gray-500">Loading campaign items...</div> : null}
+                          {createData.campaign_id && createCampaignData ? (
+                            (() => {
+                              const constraints = createCampaignData.constraints || {};
+                              const displayItems = Array.isArray(createCampaignData.display_items) ? createCampaignData.display_items : [];
+                              const extraItems = Array.isArray(createCampaignData.extra_pool_items) ? createCampaignData.extra_pool_items : [];
+                              const displayLimit = Number(constraints.display_limit || 0);
+                              const extraLimit = Number(constraints.extra_pool_limit || 0);
+                              const minCount = Number(constraints.min_selectable_count || 0);
+                              const maxCount = Number(constraints.max_selectable_count || displayLimit || 0);
+                              const selected = createCampaignSelected || {};
+                              const selectedCount = Object.values(selected).filter(Boolean).length;
+                              const extraSelected = extraItems.filter((it) => selected[Number(it.product_spec_id)]).length;
+                              const total = [...displayItems, ...extraItems].reduce((sum, it) => {
+                                const sid = Number(it.product_spec_id);
+                                if (!selected[sid]) return sum;
+                                return sum + toNum(it.override_price);
+                              }, 0);
+                              const valid = selectedCount >= minCount && selectedCount <= maxCount && extraSelected <= extraLimit;
+                              const toggle = (specId, checked) => {
+                                setCreateCampaignSelected((prev) => {
+                                  const next = { ...(prev || {}) };
+                                  if (checked) next[specId] = true;
+                                  else delete next[specId];
+                                  setCreateData((s) => ({ ...s, items: rebuildCampaignCart(createCampaignData, next) }));
+                                  return next;
+                                });
+                              };
+                              return (
+                                <div className="space-y-2">
+                                  <div className="text-xs text-gray-600">
+                                    Selected: {selectedCount} • Min: {minCount} • Max: {maxCount} • Extra used: {extraSelected}/{extraLimit} • Total: {total.toLocaleString()}
+                                  </div>
+                                  {!valid ? (
+                                    <div className="text-xs text-red-600">Selection is not valid for this campaign limits.</div>
+                                  ) : null}
+                                  <div className="mt-2">
+                                    <div className="text-[11px] font-bold text-gray-500 uppercase mb-1">Display Items</div>
+                                    <div className="space-y-1">
+                                      {displayItems.map((it) => {
+                                        const sid = Number(it.product_spec_id);
+                                        const checked = !!selected[sid];
+                                        const disableUncheck = checked && selectedCount <= minCount;
+                                        const disableCheck = !checked && selectedCount >= maxCount;
+                                        return (
+                                          <label key={sid} className={`flex items-center gap-2 text-xs ${disableUncheck || disableCheck ? 'opacity-60' : ''}`}>
+                                            <input
+                                              type="checkbox"
+                                              checked={checked}
+                                              disabled={disableUncheck || disableCheck}
+                                              onChange={(e) => toggle(sid, e.target.checked)}
+                                            />
+                                            <span className="truncate">{it.product_name} • {toNum(it.override_price).toLocaleString()}</span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                  {extraItems.length ? (
+                                    <div className="mt-2">
+                                      <div className="text-[11px] font-bold text-gray-500 uppercase mb-1">Extra Pool</div>
+                                      <div className="space-y-1">
+                                        {extraItems.map((it) => {
+                                          const sid = Number(it.product_spec_id);
+                                          const checked = !!selected[sid];
+                                          const disableCheck = !checked && (selectedCount >= maxCount || extraSelected >= extraLimit);
+                                          return (
+                                            <label key={sid} className={`flex items-center gap-2 text-xs ${disableCheck ? 'opacity-60' : ''}`}>
+                                              <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                disabled={disableCheck}
+                                                onChange={(e) => toggle(sid, e.target.checked)}
+                                              />
+                                              <span className="truncate">{it.product_name} • {toNum(it.override_price).toLocaleString()}</span>
+                                            </label>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              );
+                            })()
+                          ) : null}
+                        </div>
                         <div className="rounded-lg border bg-white p-3 space-y-2">
                           <div className="text-xs font-bold text-gray-600 uppercase">Delivery</div>
                           <select
@@ -1158,7 +1420,9 @@ export default function OrdersPage() {
                                             step="1"
                                             className="w-full border rounded px-2 py-1"
                                             value={it.price ?? ''}
+                                            disabled={!!createData.campaign_id}
                                             onChange={(e) => {
+                                              if (createData.campaign_id) return;
                                               const raw = e.target.value;
                                               const promo = toNum(it.promo_price ?? it.base_price ?? it.price);
                                               const purchase = it.purchase_price != null ? toNum(it.purchase_price) : null;
@@ -1174,16 +1438,18 @@ export default function OrdersPage() {
                                             min={it.purchase_price != null ? toNum(it.purchase_price) : undefined}
                                             max={toNum(it.promo_price ?? it.base_price ?? it.price)}
                                           />
-                                          <button
-                                            type="button"
-                                            className="text-xs px-2 py-1 rounded border hover:bg-gray-50"
-                                            onClick={() => setCreateData(prev => ({
-                                              ...prev,
-                                              items: prev.items.map(item => item.product_spec_id === it.product_spec_id ? { ...item, price: item.promo_price } : item)
-                                            }))}
-                                          >
-                                            Reset
-                                          </button>
+                                          {!createData.campaign_id ? (
+                                            <button
+                                              type="button"
+                                              className="text-xs px-2 py-1 rounded border hover:bg-gray-50"
+                                              onClick={() => setCreateData(prev => ({
+                                                ...prev,
+                                                items: prev.items.map(item => item.product_spec_id === it.product_spec_id ? { ...item, price: item.promo_price } : item)
+                                              }))}
+                                            >
+                                              Reset
+                                            </button>
+                                          ) : null}
                                         </div>
                                         <div className="mt-1 text-[11px] text-gray-400">
                                           {isAdmin && it.purchase_price != null ? `Purchase: ${toNum(it.purchase_price).toLocaleString()} • ` : ''}
@@ -1195,10 +1461,12 @@ export default function OrdersPage() {
                                         <input
                                           type="number"
                                           className="w-full text-center border rounded px-2 py-1"
-                                          value={it.quantity}
+                                          value={createData.campaign_id ? 1 : it.quantity}
                                           min="1"
                                           max={it.stock}
+                                          disabled={!!createData.campaign_id}
                                           onChange={(e) => {
+                                            if (createData.campaign_id) return;
                                             const v = Math.min(Number(e.target.value), it.stock);
                                             setCreateData(prev => ({
                                               ...prev,
@@ -1210,8 +1478,12 @@ export default function OrdersPage() {
                                       <div className="col-span-1 flex justify-end">
                                         <button
                                           type="button"
-                                          onClick={() => setCreateData(prev => ({...prev, items: prev.items.filter(i => i.product_spec_id !== it.product_spec_id)}))}
-                                          className="text-red-500 hover:text-red-700 p-1"
+                                          onClick={() => {
+                                            if (createData.campaign_id) return;
+                                            setCreateData(prev => ({...prev, items: prev.items.filter(i => i.product_spec_id !== it.product_spec_id)}));
+                                          }}
+                                          disabled={!!createData.campaign_id}
+                                          className={`p-1 ${createData.campaign_id ? 'text-gray-300 cursor-not-allowed' : 'text-red-500 hover:text-red-700'}`}
                                           aria-label="Remove"
                                         >
                                           &times;
@@ -1226,70 +1498,85 @@ export default function OrdersPage() {
 
                 {/* RIGHT: Product Search */}
                 <div className="w-full md:w-2/3 p-6 overflow-y-auto">
-                    <div className="mb-4">
-                        <input 
-                            className="w-full border rounded-lg px-4 py-3 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" 
-                            placeholder="Search products to add..." 
-                            value={specSearch}
-                            onChange={e => setSpecSearch(e.target.value)}
-                            autoFocus
-                        />
-                    </div>
-
-                    {/* Search Results */}
-                    {!selectedProduct ? (
-                        <div className="grid grid-cols-1 gap-2">
-                            {isSearching && <div className="text-gray-500 text-sm">Searching...</div>}
-                            {specResults.map(p => (
-                                <div key={p.id} onClick={() => selectProductForCreate(p)} className="p-3 border rounded hover:bg-blue-50 cursor-pointer flex justify-between items-center">
-                                    <span className="font-medium">{p.name}</span>
-                                    <span className="text-blue-600 text-sm">Select &rarr;</span>
-                                </div>
-                            ))}
-                        </div>
+                    {createData.campaign_id ? (
+                      <div className="rounded-xl border border-amber-200 bg-amber-50 text-amber-900 p-4">
+                        <div className="font-semibold text-sm">Campaign selected</div>
+                        <div className="text-xs mt-1">To add normal items, clear the campaign first.</div>
+                      </div>
                     ) : (
-                        <div>
-                             <button onClick={() => { setSelectedProduct(null); setSpecSearch(''); }} className="text-sm text-gray-500 mb-4 hover:text-gray-800">&larr; Back to Search</button>
-                             <div className="font-bold text-lg mb-2">{selectedProduct.name}</div>
-                             <div className="overflow-x-auto">
-                                <table className="w-full text-sm text-left">
-                                    <thead className="bg-gray-50 text-gray-500">
-                                        <tr>
-                                            <th className="p-2">Variant</th>
-                                            <th className="p-2">Stock</th>
-                                            <th className="p-2">Price</th>
-                                            <th className="p-2">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y">
-                                        {selectedProduct.specs.map(sp => (
-                                            <tr key={sp.id}>
-                                                <td className="p-2">{sp.color_name || sp.color_id} / {sp.size_name || sp.size_id}</td>
-                                                <td className="p-2 font-medium">{sp.stock}</td>
-                                                <td className="p-2">{Number(sp.final_price || sp.price).toLocaleString()}</td>
-                                                <td className="p-2">
-                                                    <button 
-                                                        type="button" 
-                                                        onClick={() => addToCart(sp, selectedProduct.name)} 
-                                                        disabled={sp.stock < 1}
-                                                        className={`px-3 py-1 rounded text-xs text-white ${sp.stock < 1 ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
-                                                    >
-                                                        {sp.stock < 1 ? 'Out of Stock' : 'Add'}
-                                                    </button>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                             </div>
+                      <>
+                        <div className="mb-4">
+                            <input 
+                                className="w-full border rounded-lg px-4 py-3 shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" 
+                                placeholder="Search products to add..." 
+                                value={specSearch}
+                                onChange={e => setSpecSearch(e.target.value)}
+                                autoFocus
+                            />
                         </div>
+
+                        {!selectedProduct ? (
+                            <div className="grid grid-cols-1 gap-2">
+                                {isSearching && <div className="text-gray-500 text-sm">Searching...</div>}
+                                {specResults.map(p => (
+                                    <div key={p.id} onClick={() => selectProductForCreate(p)} className="p-3 border rounded hover:bg-blue-50 cursor-pointer flex justify-between items-center">
+                                        <span className="font-medium">{p.name}</span>
+                                        <span className="text-blue-600 text-sm">Select &rarr;</span>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div>
+                                 <button onClick={() => { setSelectedProduct(null); setSpecSearch(''); }} className="text-sm text-gray-500 mb-4 hover:text-gray-800">&larr; Back to Search</button>
+                                 <div className="font-bold text-lg mb-2">{selectedProduct.name}</div>
+                                 <div className="overflow-x-auto">
+                                    <table className="w-full text-sm text-left">
+                                        <thead className="bg-gray-50 text-gray-500">
+                                            <tr>
+                                                <th className="p-2">Variant</th>
+                                                <th className="p-2">Stock</th>
+                                                <th className="p-2">Price</th>
+                                                <th className="p-2">Action</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y">
+                                            {selectedProduct.specs.map(sp => (
+                                                <tr key={sp.id}>
+                                                    <td className="p-2">{sp.color_name || sp.color_id} / {sp.size_name || sp.size_id}</td>
+                                                    <td className="p-2 font-medium">{sp.stock}</td>
+                                                    <td className="p-2">{Number(sp.final_price || sp.price).toLocaleString()}</td>
+                                                    <td className="p-2">
+                                                        <button 
+                                                            type="button" 
+                                                            onClick={() => addToCart(sp, selectedProduct.name)} 
+                                                            disabled={sp.stock < 1}
+                                                            className={`px-3 py-1 rounded text-xs text-white ${sp.stock < 1 ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                                        >
+                                                            {sp.stock < 1 ? 'Out of Stock' : 'Add'}
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                 </div>
+                            </div>
+                        )}
+                      </>
                     )}
                 </div>
             </div>
 
             <div className="p-4 border-t bg-white flex justify-end gap-3">
-                <button onClick={() => setCreateOpen(false)} className="px-4 py-2 border rounded hover:bg-gray-50">Cancel</button>
-                <button type="submit" form="createOrderForm" disabled={createData.items.length === 0} className="px-6 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50">Create Order</button>
+                <button onClick={() => { setCreateOpen(false); clearCreateCampaign(false); }} className="px-4 py-2 border rounded hover:bg-gray-50">Cancel</button>
+                <button
+                  type="submit"
+                  form="createOrderForm"
+                  disabled={createCampaignLoading || createData.items.length === 0}
+                  className="px-6 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+                >
+                  Create Order
+                </button>
             </div>
           </div>
         </div>
