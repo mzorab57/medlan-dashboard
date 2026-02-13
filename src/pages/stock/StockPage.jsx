@@ -3,39 +3,59 @@ import { api } from '../../lib/api';
 import { useToast } from '../../store/toast';
 import { useAuth } from '../../store/auth';
 
+// ─── Icons ───────────────────────────────────────────────────────
+function IconBox() {
+  return (<svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>);
+}
+function IconSearch() {
+  return (<svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>);
+}
+function IconRefresh() {
+  return (<svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" /></svg>);
+}
+function IconDollar() {
+  return (<svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>);
+}
+function IconLayers() {
+  return (<svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2" /><polyline points="2 17 12 22 22 17" /><polyline points="2 12 12 17 22 12" /></svg>);
+}
+function IconPalette() {
+  return (<svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor" /><circle cx="17.5" cy="10.5" r=".5" fill="currentColor" /><circle cx="8.5" cy="7.5" r=".5" fill="currentColor" /><circle cx="6.5" cy="12.5" r=".5" fill="currentColor" /><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" /></svg>);
+}
+function IconRuler() {
+  return (<svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z" /><path d="m14.5 12.5 2-2" /><path d="m11.5 9.5 2-2" /><path d="m8.5 6.5 2-2" /><path d="m17.5 15.5 2-2" /></svg>);
+}
+function IconCheck() {
+  return (<svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><polyline points="22 4 12 14.01 9 11.01" /></svg>);
+}
+
 export default function StockPage() {
   const { add } = useToast();
   const { user } = useAuth();
   
-  // States
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
   
-  // Product Search States
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState([]);
   const [productLoading, setProductLoading] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   
-  // Selection States
-  const [selectedProduct, setSelectedProduct] = useState(null); // { id, name }
+  const [selectedProduct, setSelectedProduct] = useState(null);
   const [specOptions, setSpecOptions] = useState([]);
   const [specId, setSpecId] = useState('');
   
-  // Filters
   const [colors, setColors] = useState([]);
   const [sizes, setSizes] = useState([]);
   const [filterColorId, setFilterColorId] = useState('');
   const [filterSizeId, setFilterSizeId] = useState('');
 
-  // Adjustment
   const [adjustQty, setAdjustQty] = useState('');
   const [desc, setDesc] = useState('');
   
   const specsReqId = useRef(0);
 
-  // 1. Initial Load (Colors, Sizes, Restored State)
   useEffect(() => {
     (async () => {
       try {
@@ -48,7 +68,6 @@ export default function StockPage() {
       } catch { /* ignore */ }
     })();
 
-    // Restore from LocalStorage
     const pid = localStorage.getItem('stock_product_id');
     const pname = localStorage.getItem('stock_product_name');
     const sid = localStorage.getItem('stock_spec_id');
@@ -59,7 +78,6 @@ export default function StockPage() {
     }
   }, []);
 
-  // 2. Search Logic
   useEffect(() => {
     const t = setTimeout(async () => {
       if (!productSearch.trim()) {
@@ -76,17 +94,13 @@ export default function StockPage() {
     return () => clearTimeout(t);
   }, [productSearch]);
 
-  // 3. Fetch Specs for a Product
   async function fetchSpecs(productId, preSelectedSpecId = null) {
     const rid = ++specsReqId.current;
     try {
       const res = await api.get(`/api/products/${productId}/specs`);
       if (rid !== specsReqId.current) return;
-      
       const list = res.data?.data || res.data || res || [];
       setSpecOptions(list);
-
-      // Auto Select Logic
       if (preSelectedSpecId) {
         setSpecId(preSelectedSpecId);
         fetchHistory(preSelectedSpecId);
@@ -97,12 +111,9 @@ export default function StockPage() {
         setSpecId('');
         setItems([]);
       }
-    } catch {
-      setSpecOptions([]);
-    }
+    } catch { setSpecOptions([]); }
   }
 
-  // 4. Fetch History
   async function fetchHistory(id) {
     if (!id) return;
     setLoading(true);
@@ -110,35 +121,22 @@ export default function StockPage() {
     try {
       const res = await api.get(`/api/stock?product_spec_id=${id}`);
       setItems(res.data || res);
-      // Save state
       localStorage.setItem('stock_spec_id', id);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { setError(e.message); } 
+    finally { setLoading(false); }
   }
 
-  // 5. Adjust Stock
   async function adjust(e) {
     e.preventDefault();
     if (!specId || !adjustQty) return;
     try {
-      await api.post('/api/stock/adjust', { 
-        product_spec_id: Number(specId), 
-        quantity: Number(adjustQty), 
-        description: desc 
-      });
-      setAdjustQty('');
-      setDesc('');
-      add('Stock adjusted successfully', 'success');
+      await api.post('/api/stock/adjust', { product_spec_id: Number(specId), quantity: Number(adjustQty), description: desc });
+      setAdjustQty(''); setDesc('');
+      add('Stock adjusted', 'success');
       fetchHistory(specId);
-    } catch (e) {
-      add(e.message, 'error');
-    }
+    } catch (e) { add(e.message, 'error'); }
   }
 
-  // Helper to filter specs based on dropdowns
   const availableSpecs = useMemo(() => {
     return specOptions.filter(s => {
         if (filterColorId && String(s.color_id) !== filterColorId) return false;
@@ -147,7 +145,6 @@ export default function StockPage() {
     });
   }, [specOptions, filterColorId, filterSizeId]);
 
-  // Handle Product Selection
   function handleSelectProduct(p) {
     setSelectedProduct({ id: p.id, name: p.name });
     setProductSearch(p.name);
@@ -156,238 +153,273 @@ export default function StockPage() {
     setFilterColorId('');
     setFilterSizeId('');
     setItems([]);
-    
     localStorage.setItem('stock_product_id', p.id);
     localStorage.setItem('stock_product_name', p.name);
     localStorage.removeItem('stock_spec_id');
-    
     fetchSpecs(p.id);
   }
 
-  // Render Helpers
   const getColorName = (id) => colors.find(c => String(c.id) === String(id))?.name || '-';
   const getSizeName = (id) => sizes.find(s => String(s.id) === String(id))?.name || '-';
   
-  const totalStock = useMemo(() => {
-    return specOptions.reduce((sum, s) => sum + Number(s.stock ?? s.quantity_in_stock ?? 0), 0);
-  }, [specOptions]);
+  const totalStock = useMemo(() => specOptions.reduce((sum, s) => sum + Number(s.stock ?? s.quantity_in_stock ?? 0), 0), [specOptions]);
+  
   const colorTotals = useMemo(() => {
     const map = {};
-    specOptions.forEach((s) => {
-      const cid = s.color_id;
-      if (!cid) return;
-      const qty = Number(s.stock ?? s.quantity_in_stock ?? 0);
-      map[cid] = (map[cid] || 0) + qty;
-    });
+    specOptions.forEach((s) => { if (s.color_id) map[s.color_id] = (map[s.color_id] || 0) + Number(s.stock ?? 0); });
     return Object.entries(map).map(([id, total]) => ({ id, total }));
   }, [specOptions]);
+
   const sizeTotals = useMemo(() => {
     const map = {};
-    specOptions.forEach((s) => {
-      const sid = s.size_id;
-      if (!sid) return;
-      const qty = Number(s.stock ?? s.quantity_in_stock ?? 0);
-      map[sid] = (map[sid] || 0) + qty;
-    });
+    specOptions.forEach((s) => { if (s.size_id) map[s.size_id] = (map[s.size_id] || 0) + Number(s.stock ?? 0); });
     return Object.entries(map).map(([id, total]) => ({ id, total }));
   }, [specOptions]);
 
-  const stockValueCost = useMemo(() => {
-    return specOptions.reduce((sum, s) => {
-      const qty = Number(s.stock ?? s.quantity_in_stock ?? 0);
-      const cost = Number(s.purchase_price ?? 0);
-      return sum + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(cost) ? cost : 0);
-    }, 0);
-  }, [specOptions]);
-
-  const stockValueSale = useMemo(() => {
-    return specOptions.reduce((sum, s) => {
-      const qty = Number(s.stock ?? s.quantity_in_stock ?? 0);
-      const sale = Number(s.final_price ?? s.price ?? 0);
-      return sum + (Number.isFinite(qty) ? qty : 0) * (Number.isFinite(sale) ? sale : 0);
-    }, 0);
-  }, [specOptions]);
+  const stockValueCost = useMemo(() => specOptions.reduce((sum, s) => sum + (Number(s.stock ?? 0) * Number(s.purchase_price ?? 0)), 0), [specOptions]);
+  const stockValueSale = useMemo(() => specOptions.reduce((sum, s) => sum + (Number(s.stock ?? 0) * Number(s.final_price ?? s.price ?? 0)), 0), [specOptions]);
 
   return (
-    <div className="space-y-6">
-      <h2 className="text-2xl font-semibold">Stock Management</h2>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-primary/5 to-secondary/5">
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-      {/* SEARCH & FILTER SECTION */}
-      <div className="rounded-xl border bg-white p-5 space-y-4 shadow-sm">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            
-            {/* 1. Product Search */}
-            <div className="relative">
-                <label className="text-xs text-gray-500 font-medium mb-1 block">Product</label>
-                <input
-                    className="w-full rounded-md border border-gray-300 px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
-                    placeholder="Search product..."
-                    value={productSearch}
-                    onChange={(e) => { setProductSearch(e.target.value); setDropdownOpen(true); }}
-                    onFocus={() => setDropdownOpen(true)}
-                    onBlur={() => setTimeout(() => setDropdownOpen(false), 200)}
-                />
-                {dropdownOpen && productResults.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-md shadow-xl z-50 max-h-60 overflow-y-auto">
-                        {productResults.map(p => (
-                            <div key={p.id} 
-                                 className="px-3 py-2 hover:bg-blue-50 cursor-pointer text-sm border-b last:border-0"
-                                 onMouseDown={() => handleSelectProduct(p)}>
-                                {p.name}
-                            </div>
-                        ))}
-                    </div>
-                )}
-                {productLoading && <div className="absolute right-3 top-9 text-xs text-gray-400">Loading...</div>}
-            </div>
-
-           
-
-            {/* 4. Exact Spec Selection */}
-            <div>
-                <label className="text-xs text-gray-500 font-medium mb-1 block">Select Variant *</label>
-                <select 
-                    className={`w-full rounded-md border px-3 py-2 ${!specId ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
-                    value={specId}
-                    onChange={(e) => {
-                        const v = e.target.value;
-                        setSpecId(v);
-                        fetchHistory(v);
-                    }}
-                    disabled={!selectedProduct}
-                >
-                    <option value="">Select Variant...</option>
-                    {availableSpecs.map(s => (
-                        <option key={s.id} value={s.id}>
-                           {getColorName(s.color_id)} / {getSizeName(s.size_id)} (Qty: {s.stock ?? s.quantity_in_stock ?? '?'})
-                        </option>
-                    ))}
-                </select>
-            </div>
+        {/* ─── Header ─────────────────────────────────────────── */}
+        <div className="flex items-center gap-4">
+          <div className="p-3 rounded-2xl bg-gradient-to-br from-primary to-secondary text-white shadow-xl shadow-primary/30">
+            <IconBox />
+          </div>
+          <div>
+            <h1 className="text-2xl font-extrabold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+              Stock Management
+            </h1>
+            <p className="text-sm text-muted mt-0.5">Track inventory and history</p>
+          </div>
         </div>
-        {selectedProduct && (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mt-2">
-            <div className="rounded-md border p-3">
-              <div className="text-xs text-gray-500">Total Stock</div>
-              <div className="text-xl font-semibold text-blue-600">{totalStock}</div>
-              <div className="text-xs text-gray-500 mt-1">Product: {selectedProduct?.name}</div>
+
+        {/* ─── Search & Overview ────────────────────────────── */}
+        <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-slate-200/60 p-5 shadow-sm space-y-5">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Search */}
+            <div className="relative">
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">Select Product</label>
+              <div className="relative">
+                <input
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-300"
+                  placeholder="Search product..."
+                  value={productSearch}
+                  onChange={(e) => { setProductSearch(e.target.value); setDropdownOpen(true); }}
+                  onFocus={() => setDropdownOpen(true)}
+                  onBlur={() => setTimeout(() => setDropdownOpen(false), 200)}
+                />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-muted">
+                  <IconSearch />
+                </div>
+                {productLoading && (
+                  <div className="absolute right-3 top-3">
+                    <div className="w-4 h-4 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
+                  </div>
+                )}
+              </div>
+              
+              {dropdownOpen && productResults.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-slate-100 rounded-xl shadow-xl max-h-60 overflow-y-auto z-50 py-1">
+                  {productResults.map(p => (
+                    <div
+                      key={p.id}
+                      className="px-4 py-2.5 hover:bg-primary/5 cursor-pointer text-sm text-slate-700 hover:text-primary transition-colors flex items-center justify-between group"
+                      onMouseDown={() => handleSelectProduct(p)}
+                    >
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-xs text-muted opacity-0 group-hover:opacity-100 transition-opacity">Select &rarr;</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="rounded-md border p-3">
-              <div className="text-xs text-gray-500">Stock Value (Cost)</div>
-              <div className="text-xl font-semibold text-emerald-700">{stockValueCost.toLocaleString()}</div>
-              <div className="text-[11px] text-gray-500 mt-1">IQD</div>
-            </div>
-            <div className="rounded-md border p-3">
-              <div className="text-xs text-gray-500">Stock Value (Sale)</div>
-              <div className="text-xl font-semibold text-emerald-700">{stockValueSale.toLocaleString()}</div>
-              <div className="text-[11px] text-gray-500 mt-1">IQD</div>
-            </div>
-            <div className="rounded-md border p-3">
-              <div className="text-xs text-gray-500 mb-2">By Color</div>
-              <ul className="text-sm space-y-1">
-                {colorTotals.length ? colorTotals.map((ct) => (
-                  <li key={ct.id} className="flex justify-between">
-                    <span>{getColorName(ct.id)}</span>
-                    <span className="font-mono">{ct.total}</span>
-                  </li>
-                )) : <li className="text-gray-400">—</li>}
-              </ul>
-            </div>
-            <div className="rounded-md border p-3">
-              <div className="text-xs text-gray-500 mb-2">By Size</div>
-              <ul className="text-sm space-y-1">
-                {sizeTotals.length ? sizeTotals.map((st) => (
-                  <li key={st.id} className="flex justify-between">
-                    <span>{getSizeName(st.id)}</span>
-                    <span className="font-mono">{st.total}</span>
-                  </li>
-                )) : <li className="text-gray-400">—</li>}
-              </ul>
+
+            {/* Variant Select */}
+            <div>
+              <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">Select Variant</label>
+              <div className="relative">
+                <select
+                  className={`w-full appearance-none rounded-xl border px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all cursor-pointer ${!specId ? 'border-red-200 bg-red-50 text-red-700' : 'border-slate-200 bg-slate-50/50'}`}
+                  value={specId}
+                  onChange={(e) => { setSpecId(e.target.value); fetchHistory(e.target.value); }}
+                  disabled={!selectedProduct}
+                >
+                  <option value="">Select Variant...</option>
+                  {availableSpecs.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {getColorName(s.color_id)} / {getSizeName(s.size_id)} — Qty: {s.stock ?? s.quantity_in_stock}
+                    </option>
+                  ))}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9" /></svg>
+                </div>
+              </div>
             </div>
           </div>
-        )}
-      </div>
 
-      {/* ADJUSTMENT SECTION */}
-      {specId && user?.role === 'admin' && (
-          <div className="rounded-xl border bg-white p-5 shadow-sm">
-            <h3 className="text-sm font-bold text-gray-700 mb-3">Adjust Stock for: <span className="text-blue-600">{selectedProduct?.name}</span></h3>
-            <form onSubmit={adjust} className="flex flex-col sm:flex-row gap-3 items-end">
-              <div className="flex-1 w-full">
-                <label className="text-xs text-gray-500 mb-1 block">Quantity (+ Add / - Remove)</label>
-                    <input 
-                        type="number" 
-                        className="w-full rounded-md border px-3 py-2" 
-                        placeholder="+10 or -5" 
-                        value={adjustQty} 
-                        onChange={e => setAdjustQty(e.target.value)} 
-                        required
-                    />
+          {selectedProduct && (
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-2 border-t border-slate-100">
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="p-1 rounded-md bg-blue-50 text-blue-600"><IconLayers /></div>
+                  <span className="text-xs font-bold text-slate-500 uppercase">Total Stock</span>
                 </div>
-                <div className="flex-[2] w-full">
-                    <label className="text-xs text-gray-500 mb-1 block">Reason / Description</label>
-                    <input 
-                        className="w-full rounded-md border px-3 py-2" 
-                        placeholder="e.g. Broken item, New shipment..." 
-                        value={desc} 
-                        onChange={e => setDesc(e.target.value)} 
-                    />
+                <div className="text-xl font-bold text-slate-800">{totalStock.toLocaleString()}</div>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="p-1 rounded-md bg-emerald-50 text-emerald-600"><IconDollar /></div>
+                  <span className="text-xs font-bold text-slate-500 uppercase">Value (Cost)</span>
                 </div>
-                <button type="submit" className="bg-blue-600 text-white px-5 py-2 rounded-md hover:bg-blue-700 transition w-full sm:w-auto font-medium">
-                    Update Stock
-                </button>
+                <div className="text-xl font-bold text-emerald-700">{stockValueCost.toLocaleString()}</div>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-1">
+                  <div className="p-1 rounded-md bg-emerald-50 text-emerald-600"><IconDollar /></div>
+                  <span className="text-xs font-bold text-slate-500 uppercase">Value (Sale)</span>
+                </div>
+                <div className="text-xl font-bold text-emerald-700">{stockValueSale.toLocaleString()}</div>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1 rounded-md bg-pink-50 text-pink-600"><IconPalette /></div>
+                  <span className="text-xs font-bold text-slate-500 uppercase">By Color</span>
+                </div>
+                <div className="space-y-1 max-h-20 overflow-y-auto pr-1 custom-scrollbar">
+                  {colorTotals.map(ct => (
+                    <div key={ct.id} className="flex justify-between text-xs">
+                      <span className="text-slate-600">{getColorName(ct.id)}</span>
+                      <span className="font-mono font-bold text-slate-800">{ct.total}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="p-1 rounded-md bg-indigo-50 text-indigo-600"><IconRuler /></div>
+                  <span className="text-xs font-bold text-slate-500 uppercase">By Size</span>
+                </div>
+                <div className="space-y-1 max-h-20 overflow-y-auto pr-1 custom-scrollbar">
+                  {sizeTotals.map(st => (
+                    <div key={st.id} className="flex justify-between text-xs">
+                      <span className="text-slate-600">{getSizeName(st.id)}</span>
+                      <span className="font-mono font-bold text-slate-800">{st.total}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ─── ADJUSTMENT ───────────────────────────────────── */}
+        {specId && user?.role === 'admin' && (
+          <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-slate-200/60 p-5 shadow-sm">
+            <h3 className="text-sm font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <IconRefresh /> Adjust Stock
+            </h3>
+            <form onSubmit={adjust} className="flex flex-col md:flex-row gap-3 items-end">
+              <div className="w-full md:w-1/4">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Change (+/-)</label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-300"
+                  placeholder="+10 or -5"
+                  value={adjustQty}
+                  onChange={e => setAdjustQty(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="w-full flex-1">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Reason</label>
+                <input
+                  className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-300"
+                  placeholder="e.g. Broken item, New shipment..."
+                  value={desc}
+                  onChange={e => setDesc(e.target.value)}
+                />
+              </div>
+              <button
+                type="submit"
+                className="w-full md:w-auto flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-primary to-secondary text-white text-sm font-bold shadow-xl shadow-primary/25 hover:shadow-2xl hover:shadow-primary/35 hover:-translate-y-0.5 active:translate-y-0 transition-all"
+              >
+                <IconCheck /> Update
+              </button>
             </form>
           </div>
-      )}
-
-      {/* HISTORY TABLE */}
-      <div className="rounded-xl border bg-white overflow-hidden shadow-sm">
-        <div className="bg-gray-50 px-4 py-3 border-b">
-            <h3 className="text-sm font-semibold text-gray-700">Stock History</h3>
-        </div>
-        
-        {loading ? (
-          <div className="p-8 text-center text-gray-500">Loading history...</div>
-        ) : error ? (
-          <div className="p-8 text-center text-red-500">{error}</div>
-        ) : items.length === 0 ? (
-          <div className="p-8 text-center text-gray-400 text-sm">No history found for this variant.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm text-left">
-                <thead className="bg-gray-50 text-gray-600">
-                <tr>
-                    <th className="px-4 py-3 font-medium">Type</th>
-                    <th className="px-4 py-3 font-medium">Quantity</th>
-                    <th className="px-4 py-3 font-medium">Reason</th>
-                    <th className="px-4 py-3 font-medium">Order ID</th>
-                    <th className="px-4 py-3 font-medium">Date</th>
-                </tr>
-                </thead>
-                <tbody className="divide-y">
-                {items.map((m) => (
-                    <tr key={m.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3">
-                            <span className={`px-2 py-1 rounded text-xs ${
-                                m.type === 'manual_add' ? 'bg-green-100 text-green-700' :
-                                m.type === 'manual_remove' ? 'bg-red-100 text-red-700' :
-                                'bg-gray-100 text-gray-700'
-                            }`}>
-                                {m.type}
-                            </span>
-                        </td>
-                        <td className="px-4 py-3 font-medium">
-                            {Number(m.quantity) > 0 ? '+' : ''}{m.quantity}
-                        </td>
-                        <td className="px-4 py-3 text-gray-600">{m.description || '—'}</td>
-                        <td className="px-4 py-3 text-gray-600">{m.order_item_id ? `#${m.order_item_id}` : '—'}</td>
-                        <td className="px-4 py-3 text-gray-500">{new Date(m.created_at).toLocaleString()}</td>
-                    </tr>
-                ))}
-                </tbody>
-            </table>
-          </div>
         )}
+
+        {/* ─── HISTORY ──────────────────────────────────────── */}
+        <div className="rounded-2xl bg-white/80 backdrop-blur-sm border border-slate-200/60 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/30">
+            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Stock History</h3>
+          </div>
+
+          {loading ? (
+            <div className="p-12 flex flex-col items-center gap-3">
+              <div className="w-10 h-10 rounded-full border-4 border-primary/10 border-t-primary animate-spin" />
+              <p className="text-sm text-muted animate-pulse">Loading history...</p>
+            </div>
+          ) : items.length === 0 ? (
+            <div className="p-12 flex flex-col items-center gap-3">
+              <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center text-slate-300">
+                <IconRefresh />
+              </div>
+              <p className="text-sm font-medium text-muted">No history found for this variant</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50/50 text-slate-500">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-[10px] font-bold uppercase tracking-widest">Type</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-bold uppercase tracking-widest">Change</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-bold uppercase tracking-widest">Reason</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-bold uppercase tracking-widest">Order</th>
+                    <th className="px-6 py-3 text-left text-[10px] font-bold uppercase tracking-widest">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100/80">
+                  {items.map((m, idx) => (
+                    <tr key={m.id} className="hover:bg-primary/5 transition-colors" style={{ animationDelay: `${idx * 30}ms` }}>
+                      <td className="px-6 py-3.5">
+                        <span className={`inline-flex px-2 py-1 rounded text-[10px] font-bold uppercase ${
+                          m.type.includes('add') ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' :
+                          m.type.includes('remove') ? 'bg-red-50 text-red-700 border border-red-100' :
+                          'bg-slate-100 text-slate-600 border border-slate-200'
+                        }`}>
+                          {m.type.replace('_', ' ')}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3.5 font-mono font-bold">
+                        <span className={Number(m.quantity) > 0 ? 'text-emerald-600' : 'text-red-600'}>
+                          {Number(m.quantity) > 0 ? '+' : ''}{m.quantity}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3.5 text-slate-600">
+                        {m.description || '—'}
+                      </td>
+                      <td className="px-6 py-3.5">
+                        {m.order_item_id ? (
+                          <span className="font-mono text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                            #{m.order_item_id}
+                          </span>
+                        ) : <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-6 py-3.5 text-xs text-muted">
+                        {new Date(m.created_at).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
