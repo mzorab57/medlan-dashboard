@@ -64,6 +64,9 @@ export default function PurchasesPage() {
   const [statusSaving, setStatusSaving] = useState(false);
   const [itemDraftById, setItemDraftById] = useState({});
   const [itemSavingById, setItemSavingById] = useState({});
+  const [shippingTotalDraft, setShippingTotalDraft] = useState('');
+  const [shippingBaseUnitCostById, setShippingBaseUnitCostById] = useState({});
+  const [shippingSaving, setShippingSaving] = useState(false);
 
   const [viewSpecSearch, setViewSpecSearch] = useState('');
   const [viewSpecResults, setViewSpecResults] = useState([]);
@@ -108,6 +111,10 @@ export default function PurchasesPage() {
       const drafts = {};
       (res?.items || []).forEach((it) => { drafts[it.id] = { quantity: String(it.quantity ?? ''), unit_cost: String(it.unit_cost ?? '') }; });
       setItemDraftById(drafts);
+      const base = {};
+      (res?.items || []).forEach((it) => { base[it.id] = toNum(it.unit_cost); });
+      setShippingBaseUnitCostById(base);
+      setShippingTotalDraft('');
     } catch (e) { add(e.message, 'error'); } 
     finally { setViewLoading(false); }
   }
@@ -154,6 +161,107 @@ export default function PurchasesPage() {
       add('Item updated', 'success'); await openView(viewId); await fetchList();
     } catch (e) { add(e.message, 'error'); } 
     finally { setItemSavingById((s) => ({ ...(s || {}), [itemId]: false })); }
+  }
+
+  function getDraftQty(it) {
+    const draft = itemDraftById?.[it.id] || {};
+    const q = toNum(draft.quantity ?? it.quantity);
+    return Math.max(0, q);
+  }
+
+  function getDraftUnitCost(it) {
+    const draft = itemDraftById?.[it.id] || {};
+    return toNum(draft.unit_cost ?? it.unit_cost);
+  }
+
+  function computeTotalUnits(list) {
+    return (list || []).reduce((sum, it) => sum + getDraftQty(it), 0);
+  }
+
+  function applyShippingToDrafts(totalShipping) {
+    const list = viewData?.items || [];
+    const totalUnits = computeTotalUnits(list);
+    if (totalUnits <= 0) {
+      add('Qty is required before distributing shipping', 'error');
+      return { applied: false, perUnit: 0, drafts: null };
+    }
+    const perUnit = totalShipping / totalUnits;
+    const drafts = {};
+    list.forEach((it) => {
+      const base = shippingBaseUnitCostById?.[it.id];
+      const baseUnit = base != null ? toNum(base) : getDraftUnitCost(it);
+      const updated = baseUnit + perUnit;
+      drafts[it.id] = {
+        quantity: String(getDraftQty(it)),
+        unit_cost: String(Number.isFinite(updated) ? updated : baseUnit),
+      };
+    });
+    setItemDraftById((prev) => {
+      const next = { ...(prev || {}) };
+      Object.entries(drafts).forEach(([id, patch]) => {
+        const itemId = Number(id);
+        next[itemId] = { ...(next[itemId] || {}), ...patch };
+      });
+      return next;
+    });
+    return { applied: true, perUnit, drafts };
+  }
+
+  function resetShippingDrafts() {
+    const list = viewData?.items || [];
+    setItemDraftById((prev) => {
+      const next = { ...(prev || {}) };
+      list.forEach((it) => {
+        const base = shippingBaseUnitCostById?.[it.id];
+        const baseUnit = base != null ? toNum(base) : getDraftUnitCost(it);
+        next[it.id] = {
+          ...(next[it.id] || {}),
+          unit_cost: String(baseUnit),
+        };
+      });
+      return next;
+    });
+    setShippingTotalDraft('');
+  }
+
+  async function applyAndSaveShipping() {
+    if (!viewId) return;
+    const totalShipping = toNum(shippingTotalDraft);
+    if (!Number.isFinite(totalShipping) || totalShipping <= 0) {
+      add('Invalid shipping total', 'error');
+      return;
+    }
+    const editable = !['received','cancelled'].includes(String(viewData?.purchase?.status).toLowerCase());
+    if (!editable) {
+      add('Purchase is locked', 'error');
+      return;
+    }
+    const { applied, drafts } = applyShippingToDrafts(totalShipping);
+    if (!applied || !drafts) return;
+    const list = viewData?.items || [];
+    setShippingSaving(true);
+    try {
+      for (const it of list) {
+        const d = drafts[it.id] || {};
+        const q = Number(toNum(d.quantity ?? it.quantity));
+        const uc = Number(toNum(d.unit_cost ?? it.unit_cost));
+        setItemSavingById((s) => ({ ...(s || {}), [it.id]: true }));
+        await api.patch(`/api/purchases/items?id=${it.id}`, { quantity: q, unit_cost: uc });
+        setItemSavingById((s) => ({ ...(s || {}), [it.id]: false }));
+      }
+      add('Shipping distributed and saved', 'success');
+      await openView(viewId);
+      await fetchList();
+    } catch (e) {
+      add(e.message, 'error');
+    } finally {
+      setShippingSaving(false);
+      setItemSavingById((s) => {
+        const next = { ...(s || {}) };
+        (viewData?.items || []).forEach((it) => { next[it.id] = false; });
+        return next;
+      });
+    }
   }
 
   async function deleteItem(itemId) {
@@ -496,9 +604,9 @@ export default function PurchasesPage() {
 
         {/* ─── VIEW MODAL ─────────────────────────────────────── */}
         {viewId && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-lg" onClick={(e) => e.target === e.currentTarget && setViewId(null)}>
+          <div style={{marginTop:0}} className="fixed  inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-lg" onClick={(e) => e.target === e.currentTarget && setViewId(null)}>
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden ring-1 ring-slate-200/50">
-              <div className="px-8 py-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
+              <div className="px-8 py-6 border-b mt-0  border-slate-100 flex justify-between items-center bg-slate-50/30">
                 <div>
                   <h3 className="text-xl font-extrabold text-slate-800">Purchase #{viewId}</h3>
                   <p className="text-xs text-muted">Manage order details & reception</p>
@@ -545,6 +653,69 @@ export default function PurchasesPage() {
                         </div>
                       ))}
                     </div>
+
+                    {(() => {
+                      const editable = !['received','cancelled'].includes(String(viewData.purchase?.status).toLowerCase());
+                      const list = viewData.items || [];
+                      const totalUnits = computeTotalUnits(list);
+                      const shipTotal = toNum(shippingTotalDraft);
+                      const perUnit = totalUnits > 0 ? (shipTotal / totalUnits) : 0;
+                      const nextTotal = list.reduce((sum, it) => {
+                        const qty = getDraftQty(it);
+                        const base = shippingBaseUnitCostById?.[it.id];
+                        const baseUnit = base != null ? toNum(base) : getDraftUnitCost(it);
+                        return sum + (baseUnit + (shipTotal > 0 ? perUnit : 0)) * qty;
+                      }, 0);
+                      return (
+                        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                            <div className="flex-1">
+                              <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Shipping Allocation</div>
+                              <div className="text-sm font-bold text-slate-800">Distribute delivery cost into unit cost</div>
+                              <div className="mt-1 text-xs text-muted">
+                                Total units: {totalUnits.toLocaleString()} • Per unit: {Number.isFinite(perUnit) ? perUnit.toLocaleString() : '0'} • New total: {nextTotal.toLocaleString()}
+                              </div>
+                            </div>
+                            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+                              <div>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Shipping (IQD)</label>
+                                <input
+                                  className="mt-1 w-44 border rounded-xl px-3 py-2 text-sm text-right font-mono outline-none focus:border-primary"
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={shippingTotalDraft}
+                                  onChange={(e) => setShippingTotalDraft(e.target.value)}
+                                  disabled={!editable || shippingSaving}
+                                  placeholder="e.g. 15000"
+                                />
+                              </div>
+                              <button
+                                onClick={() => applyShippingToDrafts(toNum(shippingTotalDraft))}
+                                disabled={!editable || shippingSaving || shipTotal <= 0 || totalUnits <= 0}
+                                className="px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-bold hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                Distribute
+                              </button>
+                              <button
+                                onClick={applyAndSaveShipping}
+                                disabled={!editable || shippingSaving || shipTotal <= 0 || totalUnits <= 0}
+                                className="px-4 py-2 rounded-xl bg-primary text-white text-sm font-bold hover:bg-secondary disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {shippingSaving ? 'Saving...' : 'Distribute & Save'}
+                              </button>
+                              <button
+                                onClick={resetShippingDrafts}
+                                disabled={!editable || shippingSaving}
+                                className="px-4 py-2 rounded-xl border text-sm font-bold hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                Reset
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Items Table */}
                     <div className="rounded-2xl border border-slate-200 overflow-hidden">
@@ -606,6 +777,9 @@ export default function PurchasesPage() {
                           <div className="relative">
                             <input className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-white text-sm outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary" placeholder="Search product to add..." value={viewSpecSearch} onChange={e => setViewSpecSearch(e.target.value)} />
                             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted"><IconSearch /></div>
+                            {viewIsSearching ? (
+                              <div className="mt-2 text-xs text-muted">Searching...</div>
+                            ) : null}
                             {viewSpecResults.length > 0 && (
                               <div className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl shadow-xl border border-slate-100 overflow-hidden z-10">
                                 {viewSpecResults.map(p => (
@@ -629,7 +803,9 @@ export default function PurchasesPage() {
                                     <div className="font-bold text-slate-700">{sp.color_name} / {sp.size_name}</div>
                                     <div className="text-muted">Buy: {toNum(sp.purchase_price).toLocaleString()}</div>
                                   </div>
-                                  <button onClick={() => addItemToPurchase(sp)} className="px-3 py-1.5 bg-primary text-white text-xs font-bold rounded-lg shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all">Add</button>
+                                  <button onClick={() => addItemToPurchase(sp)} disabled={viewAddLoading} className="px-3 py-1.5 bg-primary text-white text-xs font-bold rounded-lg shadow-sm hover:shadow-md hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+                                    {viewAddLoading ? 'Adding...' : 'Add'}
+                                  </button>
                                 </div>
                               ))}
                             </div>

@@ -3,7 +3,7 @@ import { api } from '../../lib/api';
 import { useToast } from '../../store/toast';
 
 // ─── Icons ───────────────────────────────────────────────────────
-function IconStar({ filled, half }) {
+function IconStar({ filled }) {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
@@ -38,7 +38,6 @@ export default function FeedbackPage() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
 
   const [productSearch, setProductSearch] = useState('');
   const [productResults, setProductResults] = useState([]);
@@ -54,12 +53,10 @@ export default function FeedbackPage() {
   const fetchList = useCallback(async (id) => {
     if (!id) return;
     setLoading(true);
-    setError(null);
     try {
       const res = await api.get(`/api/products/${id}/feedback`);
       setItems(res.data || res);
-    } catch (e) {
-      setError(e.message);
+    } catch {
       setItems([]);
     } finally {
       setLoading(false);

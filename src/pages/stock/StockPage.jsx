@@ -34,7 +34,6 @@ export default function StockPage() {
   const { user } = useAuth();
   
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [items, setItems] = useState([]);
   
   const [productSearch, setProductSearch] = useState('');
@@ -117,12 +116,11 @@ export default function StockPage() {
   async function fetchHistory(id) {
     if (!id) return;
     setLoading(true);
-    setError(null);
     try {
       const res = await api.get(`/api/stock?product_spec_id=${id}`);
       setItems(res.data || res);
       localStorage.setItem('stock_spec_id', id);
-    } catch (e) { setError(e.message); } 
+    } catch (e) { add(e.message, 'error'); } 
     finally { setLoading(false); }
   }
 
