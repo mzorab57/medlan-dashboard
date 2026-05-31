@@ -16,6 +16,7 @@ const INITIAL_FORM_STATE = {
   base_price: '',
   purchase_price: '',
   short_description: '',
+  long_description: '',
   is_active: 1,
   is_featured: 0,
 };
@@ -244,6 +245,7 @@ export default function ProductsPage() {
         base_price: prod?.base_price ?? product.base_price,
         purchase_price: prod?.purchase_price ?? product.purchase_price,
         short_description: prod?.short_description ?? '',
+        long_description: prod?.long_description ?? '',
         is_active: prod?.is_active ? 1 : 0,
         is_featured: prod?.is_featured ? 1 : 0,
       });
@@ -267,6 +269,7 @@ export default function ProductsPage() {
       base_price: Number(formData.base_price),
       purchase_price: isAdmin ? Number(formData.purchase_price) : undefined,
       short_description: formData.short_description || undefined,
+      long_description: formData.long_description || undefined,
       is_active: Number(formData.is_active),
       is_featured: Number(formData.is_featured),
     };
@@ -919,6 +922,21 @@ export default function ProductsPage() {
                   />
                 </div>
 
+                <div>
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">
+                    Long Description
+                  </label>
+                  <textarea
+                    className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm bg-slate-50/50 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 hover:bg-white transition-all resize-y min-h-[140px]"
+                    rows={7}
+                    value={formData.long_description}
+                    onChange={(e) =>
+                      setFormData({ ...formData, long_description: e.target.value })
+                    }
+                    placeholder="Full product details..."
+                  />
+                </div>
+
                 {/* Toggles */}
                 <div className="flex gap-6 pt-2">
                   <label className="relative inline-flex items-center gap-3 cursor-pointer group">
@@ -973,6 +991,8 @@ export default function ProductsPage() {
                   </button>
                 </div>
               </form>
+
+              
             </div>
           </div>
         )}
@@ -1096,6 +1116,17 @@ export default function ProductsPage() {
                             <p className="text-sm text-slate-600 leading-relaxed">
                               {viewData.product.short_description}
                             </p>
+                          </div>
+                        )}
+
+                        {viewData.product?.long_description && (
+                          <div className="rounded-xl border border-slate-200 p-4">
+                            <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                              Details
+                            </div>
+                            <div className="text-sm text-slate-600 leading-relaxed whitespace-pre-wrap">
+                              {viewData.product.long_description}
+                            </div>
                           </div>
                         )}
 

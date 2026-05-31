@@ -13,6 +13,7 @@ dist-ssr
 *.local
 
 /backend
+/medlan-website
 
 # Editor directories and files
 .vscode/*

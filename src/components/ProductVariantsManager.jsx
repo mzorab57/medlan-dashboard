@@ -122,6 +122,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
   async function loadSpecImages(specId) {
     try {
       const res = await api.get(`/api/specs/${specId}/images`);
+      console.log(res);
       setImagesMap((m) => ({ ...m, [specId]: res.data?.data || res.data || res || [] }));
     } catch { setImagesMap((m) => ({ ...m, [specId]: [] })); }
   }
@@ -184,6 +185,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
     };
     try {
       const resp = await api.post(`/api/products/${productId}/specs`, payload);
+      console.log(resp);
       const newId = resp?.id || resp?.data?.id;
       if (newId && createImageFile) {
         const fd = new FormData();
