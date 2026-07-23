@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { api, API_BASE } from '../lib/api';
 import { useToast } from '../store/toast';
 import { useAuth } from '../store/auth';
@@ -122,7 +122,6 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
   async function loadSpecImages(specId) {
     try {
       const res = await api.get(`/api/specs/${specId}/images`);
-      console.log(res);
       setImagesMap((m) => ({ ...m, [specId]: res.data?.data || res.data || res || [] }));
     } catch { setImagesMap((m) => ({ ...m, [specId]: [] })); }
   }
@@ -130,22 +129,31 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
   async function uploadSpecImage(specId, e) {
     e.preventDefault();
     const f = e.target;
-    const file = f.image.files[0];
-    if (!file) return;
+    const files = Array.from(f.image.files || []);
+    if (files.length === 0) return;
     setUploadingMap((m) => ({ ...m, [specId]: true }));
-    const fd = new FormData();
-    fd.append('image', file);
-    fd.append('alt_text', f.alt_text.value || '');
-    fd.append('sort_order', f.sort_order.value || '0');
-    fd.append('is_primary', f.is_primary.checked ? '1' : '0');
+    const altText = f.alt_text.value || '';
+    const baseSortOrder = Number(f.sort_order.value || 0);
+    const markFirstAsPrimary = f.is_primary.checked;
+    let uploadedCount = 0;
     try {
-      const created = await api.postForm(`/api/specs/${specId}/images`, fd);
-      setImagesMap((m) => ({
-        ...m,
-        [specId]: [...(m[specId] || []), { id: created.id, spec_id: specId, image: created.image, alt_text: f.alt_text.value || '', sort_order: Number(f.sort_order.value || 0), is_primary: f.is_primary.checked ? 1 : 0 }],
-      }));
+      for (const [index, file] of files.entries()) {
+        const fd = new FormData();
+        fd.append('image', file);
+        fd.append('alt_text', altText);
+        fd.append('sort_order', String(baseSortOrder + index));
+        fd.append('is_primary', markFirstAsPrimary && index === 0 ? '1' : '0');
+        await api.postForm(`/api/specs/${specId}/images`, fd);
+        uploadedCount += 1;
+      }
+      await loadSpecImages(specId);
       f.reset();
-      add('Image uploaded', 'success');
+      add(
+        uploadedCount === 1
+          ? 'Image uploaded'
+          : `${uploadedCount} images uploaded`,
+        'success',
+      );
     } catch (e) { add(e.message, 'error'); }
     finally { setUploadingMap((m) => ({ ...m, [specId]: false })); }
   }
@@ -780,9 +788,14 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                                   <input
                                     type="file"
                                     name="image"
+                                    multiple
+                                    accept="image/*"
                                     className="w-full text-xs border border-slate-200 rounded-lg bg-white p-1.5 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-semibold file:bg-violet-50 file:text-violet-600 cursor-pointer"
                                     required
                                   />
+                                  <p className="mt-1 text-[10px] text-slate-400">
+                                    Detwanit chand weneek la yak jar da halbzherit.
+                                  </p>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2">
                                   <div>
@@ -806,7 +819,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                                   className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-purple-600 text-white text-xs font-semibold shadow-md shadow-violet-500/20 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 transition-all disabled:opacity-50"
                                 >
                                   <IconUpload />
-                                  {uploadingMap[r.id] ? 'Uploading...' : 'Upload'}
+                                  {uploadingMap[r.id] ? 'Uploading...' : 'Upload Images'}
                                 </button>
                               </form>
                             </div>
