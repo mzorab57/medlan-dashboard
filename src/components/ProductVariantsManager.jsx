@@ -9,6 +9,100 @@ function assetUrl(p) {
   return `${ASSET_BASE}/${rel}`;
 }
 
+const IMAGE_PROCESS_THRESHOLD_BYTES = 1024 * 1024; // 1MB
+const IMAGE_TARGET_BYTES = 900 * 1024; // 900KB
+const IMAGE_MAX_DIMENSION = 2600;
+const IMAGE_MIN_DIMENSION = 1400;
+const IMAGE_START_QUALITY = 0.98;
+const IMAGE_MIN_QUALITY = 0.88;
+const IMAGE_QUALITY_STEP = 0.02;
+const IMAGE_SCALE_STEP = 0.97;
+const SUPPORTED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+]);
+function renameWithWebp(name) {
+  return String(name || 'image').replace(/\.[^.]+$/, '') + '.webp';
+}
+
+function readImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Image file could not be read'));
+    };
+    img.src = url;
+  });
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Image conversion failed'));
+    }, type, quality);
+  });
+}
+
+async function optimizeVariantImage(file) {
+  if (!SUPPORTED_IMAGE_TYPES.has(file.type)) {
+    throw new Error('Only JPG, PNG, and WebP images are supported');
+  }
+
+  const shouldProcess = file.type !== 'image/webp' || file.size > IMAGE_PROCESS_THRESHOLD_BYTES;
+  if (!shouldProcess) return file;
+
+  const img = await readImageFile(file);
+  const longestSide = Math.max(img.naturalWidth, img.naturalHeight);
+  const baseScale = longestSide > IMAGE_MAX_DIMENSION ? IMAGE_MAX_DIMENSION / longestSide : 1;
+
+  let bestBlob = null;
+  let scale = baseScale;
+
+  while (scale > 0) {
+    const width = Math.max(1, Math.round(img.naturalWidth * scale));
+    const height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const shortestSide = Math.min(width, height);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) throw new Error('Canvas is not available');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, width, height);
+
+    for (let quality = IMAGE_START_QUALITY; quality >= IMAGE_MIN_QUALITY; quality -= IMAGE_QUALITY_STEP) {
+      const blob = await canvasToBlob(canvas, 'image/webp', Number(quality.toFixed(2)));
+      if (!bestBlob || blob.size < bestBlob.size) bestBlob = blob;
+      if (blob.size <= IMAGE_TARGET_BYTES) {
+        return new File([blob], renameWithWebp(file.name), {
+          type: 'image/webp',
+          lastModified: Date.now(),
+        });
+      }
+    }
+
+    if (shortestSide <= IMAGE_MIN_DIMENSION) break;
+    scale *= IMAGE_SCALE_STEP;
+  }
+
+  if (!bestBlob) throw new Error('Image optimization failed');
+
+  return new File([bestBlob], renameWithWebp(file.name), {
+    type: 'image/webp',
+    lastModified: Date.now(),
+  });
+}
+
 // ─── Icons ───────────────────────────────────────────────────────
 function IconPlus() {
   return (<svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>);
@@ -126,20 +220,36 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
     } catch { setImagesMap((m) => ({ ...m, [specId]: [] })); }
   }
 
+  function toggleVariantRow(specId, isExpanded) {
+    if (isExpanded) {
+      setExpandedRow(null);
+      setOpenImages((prev) => ({ ...prev, [specId]: false }));
+      return;
+    }
+    setExpandedRow(specId);
+    setOpenImages((prev) => ({ ...prev, [specId]: true }));
+    loadSpecImages(specId);
+  }
+
   async function uploadSpecImage(specId, e) {
     e.preventDefault();
-    const f = e.target;
-    const files = Array.from(f.image.files || []);
+    const f = e.currentTarget;
+    const imageInput = f.elements.namedItem('image');
+    const altInput = f.elements.namedItem('alt_text');
+    const sortInput = f.elements.namedItem('sort_order');
+    const primaryInput = f.elements.namedItem('is_primary');
+    const files = Array.from(imageInput?.files || []);
     if (files.length === 0) return;
     setUploadingMap((m) => ({ ...m, [specId]: true }));
-    const altText = f.alt_text.value || '';
-    const baseSortOrder = Number(f.sort_order.value || 0);
-    const markFirstAsPrimary = f.is_primary.checked;
+    const altText = altInput && 'value' in altInput ? altInput.value || '' : '';
+    const baseSortOrder = sortInput && 'value' in sortInput ? Number(sortInput.value || 0) : 0;
+    const markFirstAsPrimary = primaryInput && 'checked' in primaryInput ? !!primaryInput.checked : false;
     let uploadedCount = 0;
     try {
       for (const [index, file] of files.entries()) {
+        const preparedFile = await optimizeVariantImage(file);
         const fd = new FormData();
-        fd.append('image', file);
+        fd.append('image', preparedFile, preparedFile.name);
         fd.append('alt_text', altText);
         fd.append('sort_order', String(baseSortOrder + index));
         fd.append('is_primary', markFirstAsPrimary && index === 0 ? '1' : '0');
@@ -196,8 +306,9 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
       console.log(resp);
       const newId = resp?.id || resp?.data?.id;
       if (newId && createImageFile) {
+        const preparedFile = await optimizeVariantImage(createImageFile);
         const fd = new FormData();
-        fd.append('image', createImageFile);
+        fd.append('image', preparedFile, preparedFile.name);
         fd.append('is_primary', '0');
         const createdImage = await api.postForm(`/api/specs/${newId}/images`, fd);
         if (createdImage?.image) {
@@ -302,13 +413,13 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
             <span className="text-sm font-semibold text-slate-700">Stock by Color</span>
           </div>
           {colorTotals.length ? (
-            <div className="space-y-2.5">
+            <div className=" flex justify-between items-center gap-2 flex-wrap">
               {colorTotals.map((ct) => {
                 const pct = totalStock > 0 ? (ct.total / totalStock) * 100 : 0;
                 const hex = getColorHex(ct.id);
                 return (
                   <div key={ct.id}>
-                    <div className="flex items-center justify-between mb-1">
+                    <div className="flex flex-col items-center mb-1">
                       <div className="flex items-center gap-2">
                         {hex && (
                           <span
@@ -320,12 +431,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                       </div>
                       <span className="text-sm font-bold text-slate-800 font-mono">{ct.total.toLocaleString()}</span>
                     </div>
-                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-pink-400 to-rose-500 transition-all duration-500"
-                        style={{ width: `${Math.max(pct, 2)}%` }}
-                      />
-                    </div>
+                   
                   </div>
                 );
               })}
@@ -348,10 +454,10 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
               {sizeTotals.map((st) => (
                 <div
                   key={st.id}
-                  className="flex flex-col items-center px-4 py-3 rounded-xl bg-gradient-to-b from-blue-50 to-indigo-50 border border-blue-200/50 min-w-[70px] hover:shadow-sm transition-shadow"
+                  className="flex flex-col items-center px-2 py-1 rounded-xl bg-gradient-to-b from-blue-50 to-indigo-50  border-blue-200/50 min-w-[70px] hover:shadow-sm transition-shadow"
                 >
                   <span className="text-xs font-bold text-blue-700 uppercase">{getSizeName(st.id)}</span>
-                  <span className="text-lg font-bold text-slate-800 font-mono mt-0.5">{st.total.toLocaleString()}</span>
+                  <span className="text-xs font-bold text-slate-800 font-mono mt-0.5">{st.total.toLocaleString()}</span>
                 </div>
               ))}
             </div>
@@ -488,7 +594,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                 <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Image</label>
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/webp"
                   className="w-full text-sm border border-slate-200 rounded-xl bg-white p-2 file:mr-3 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-violet-50 file:text-violet-600 hover:file:bg-violet-100 cursor-pointer"
                   onChange={(e) => setCreateImageFile(e.target.files?.[0] || null)}
                 />
@@ -556,7 +662,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                 {/* ─── Variant Header Row ────────────────────── */}
                 <div
                   className="flex items-center gap-4 px-5 py-4 cursor-pointer group"
-                  onClick={() => setExpandedRow(isExpanded ? null : r.id)}
+                    onClick={() => toggleVariantRow(r.id, isExpanded)}
                 >
                   {/* Color Dot + ID */}
                   <div className="flex items-center gap-2.5 min-w-[60px]">
@@ -629,19 +735,23 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                   <div className="border-t border-slate-100 bg-gradient-to-b from-slate-50/50 to-white">
                     {/* Edit Fields */}
                     <div className="px-5 py-5 space-y-4">
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                     
+                        
+                     
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
                         <div>
                           <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">SKU</label>
                           <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400" value={r.sku_variant || ''} onChange={(e) => setRows((s) => s.map((x) => x.id === r.id ? { ...x, sku_variant: e.target.value } : x))} />
                         </div>
-                        <div>
+                        {/* <div>
                           <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Spec Key</label>
                           <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400" value={r.spec_key || ''} onChange={(e) => setRows((s) => s.map((x) => x.id === r.id ? { ...x, spec_key: e.target.value } : x))} />
-                        </div>
-                        <div>
+                        </div> */}
+                        {/* <div>
                           <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Spec Value</label>
                           <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400" value={r.spec_value || ''} onChange={(e) => setRows((s) => s.map((x) => x.id === r.id ? { ...x, spec_value: e.target.value } : x))} />
-                        </div>
+                        </div> */}
                         <div>
                           <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Gender</label>
                           <select className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 appearance-none cursor-pointer" value={r.gender ?? ''} onChange={(e) => setRows((s) => s.map((x) => x.id === r.id ? { ...x, gender: e.target.value } : x))}>
@@ -650,9 +760,6 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                             <option value="female">Female</option>
                           </select>
                         </div>
-                      </div>
-
-                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                         <div>
                           <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">Sell Price</label>
                           <input className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 font-mono" type="number" step="0.01" value={r.price} onChange={(e) => setRows((s) => s.map((x) => x.id === r.id ? { ...x, price: e.target.value } : x))} />
@@ -694,7 +801,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                         </label>
 
                         <div className="flex gap-2">
-                          <button
+                          {/* <button
                             onClick={() => {
                               const willOpen = !openImages[r.id];
                               setOpenImages((prev) => ({ ...prev, [r.id]: willOpen }));
@@ -708,7 +815,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                           >
                             <IconImage />
                             Images
-                          </button>
+                          </button> */}
                           <button
                             onClick={() => saveRow(r)}
                             className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-sm font-semibold shadow-md shadow-blue-500/20 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0 transition-all"
@@ -742,7 +849,7 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                                 {(imagesMap[r.id] || []).length}
                               </span>
                             </div>
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 ">
                               {(imagesMap[r.id] || []).map((img) => (
                                 <div key={img.id} className="group relative rounded-xl border border-slate-200 overflow-hidden aspect-square bg-slate-50 hover:shadow-lg transition-all duration-300">
                                   <img src={assetUrl(img.image)} className="w-full h-full object-cover" alt="" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
@@ -789,15 +896,15 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                                     type="file"
                                     name="image"
                                     multiple
-                                    accept="image/*"
+                                    accept="image/jpeg,image/png,image/webp"
                                     className="w-full text-xs border border-slate-200 rounded-lg bg-white p-1.5 file:mr-2 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-[10px] file:font-semibold file:bg-violet-50 file:text-violet-600 cursor-pointer"
                                     required
                                   />
-                                  <p className="mt-1 text-[10px] text-slate-400">
-                                    Detwanit chand weneek la yak jar da halbzherit.
-                                  </p>
+                                  {/* <p className="mt-1 text-[10px] text-slate-400">
+                                    Non-webp xoy ba webp degorrêt; wene gawarekanish pesh upload optimize dekrên.
+                                  </p> */}
                                 </div>
-                                <div className="grid grid-cols-2 gap-2">
+                                {/* <div className="grid grid-cols-2 gap-2">
                                   <div>
                                     <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Sort</label>
                                     <input type="number" name="sort_order" defaultValue="0" className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white outline-none focus:ring-2 focus:ring-violet-500/20" />
@@ -808,10 +915,10 @@ export default function ProductVariantsManager({ productId, specs, onReload }) {
                                       <span className="text-xs text-slate-600 font-medium">Primary</span>
                                     </label>
                                   </div>
-                                </div>
+                                </div> */}
                                 <div>
-                                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Alt Text</label>
-                                  <input type="text" name="alt_text" className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white outline-none focus:ring-2 focus:ring-violet-500/20" placeholder="Description..." />
+                                  {/* <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Alt Text</label>
+                                  <input type="text" name="alt_text" className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs bg-white outline-none focus:ring-2 focus:ring-violet-500/20" placeholder="Description..." /> */}
                                 </div>
                                 <button
                                   disabled={!!uploadingMap[r.id]}

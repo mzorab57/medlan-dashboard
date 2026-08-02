@@ -28,6 +28,18 @@ function toNum(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function uniqueById(list) {
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(list) ? list : []).forEach((item, index) => {
+    const key = item?.id != null ? `id:${item.id}` : `idx:${index}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(item);
+  });
+  return out;
+}
+
 export default function OrdersPage() {
   const { add } = useToast();
   const { user } = useAuth();
@@ -304,7 +316,7 @@ export default function OrdersPage() {
       setIsSearching(true);
       try {
         const res = await api.get(`/api/products?search=${specSearch}&per_page=5`);
-        setSpecResults(res.data || res || []);
+        setSpecResults(uniqueById(res.data || res || []));
       } catch { setSpecResults([]); } 
       finally { setIsSearching(false); }
     }, 300);
@@ -320,7 +332,7 @@ export default function OrdersPage() {
       setEditIsSearching(true);
       try {
         const res = await api.get(`/api/products?search=${editSpecSearch}&per_page=5`);
-        setEditSpecResults(res.data || res || []);
+        setEditSpecResults(uniqueById(res.data || res || []));
       } catch { setEditSpecResults([]); }
       finally { setEditIsSearching(false); }
     }, 300);
@@ -330,7 +342,7 @@ export default function OrdersPage() {
   async function selectProductForCreate(prod) {
       try {
           const res = await api.get(`/api/products/${prod.id}/specs`);
-          const specs = Array.isArray(res) ? res : (res.data || []);
+          const specs = uniqueById(Array.isArray(res) ? res : (res.data || []));
           setSelectedProduct({ ...prod, specs });
           setSpecSearch(prod.name); // Set input to name
           setSpecResults([]); // Hide dropdown
@@ -342,7 +354,7 @@ export default function OrdersPage() {
   async function selectProductForEdit(prod) {
       try {
           const res = await api.get(`/api/products/${prod.id}/specs`);
-          const specs = Array.isArray(res) ? res : (res.data || []);
+          const specs = uniqueById(Array.isArray(res) ? res : (res.data || []));
           setEditSelectedProduct({ ...prod, specs });
           setEditSpecSearch(prod.name);
           setEditSpecResults([]);
@@ -987,7 +999,7 @@ export default function OrdersPage() {
                                 </thead>
                                 <tbody className="divide-y">
                                   {list.map((it, idx) => (
-                                    <tr key={idx}>
+                                    <tr key={it.id ?? `${it.product_spec_id}-${idx}`}>
                                       <td className="py-3">
                                         <div className="flex items-center gap-3">
                                           <button
