@@ -19,30 +19,32 @@ import './index.css';
 import ColorsSizesPage from './pages/meta/ColorsSizesPage.jsx';
 import ExpensesPage from './pages/expenses/ExpensesPage.jsx';
 import PurchasesPage from './pages/purchases/PurchasesPage.jsx';
+import HeroBannersPage from './pages/website/HeroBannersPage.jsx';
 
 export default function App() {
-  return (
-    <>
-      <Toaster />
-      <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<RequireAuth><DashboardLayout /></RequireAuth>}>
-          <Route index element={<DashboardHome />} />
-          <Route path="products" element={<ProductsPage />} />
-          <Route path="orders" element={<OrdersPage />} />
-          <Route path="promotions" element={<RequireRole roles={['admin']}><PromotionsPage /></RequireRole>} />
-          <Route path="users" element={<RequireRole roles={['admin']}><UsersPage /></RequireRole>} />
-          <Route path="feedback" element={<FeedbackPage />} />
-          <Route path="stock" element={<RequireRole roles={['admin','employee']}><StockPage /></RequireRole>} />
-          <Route path="purchases" element={<RequireRole roles={['admin','employee']}><PurchasesPage /></RequireRole>} />
-          <Route path="categories" element={<CategoriesPage />} />
-          <Route path="brands" element={<BrandsPage />} />
-          <Route path="subcategories" element={<SubcategoriesPage />} />
-          <Route path="reports/sales" element={<RequireRole roles={['admin']}><SalesReportPage /></RequireRole>} />
-          <Route path="meta/colors-sizes" element={<RequireRole roles={['admin']}><ColorsSizesPage /></RequireRole>} />
-          <Route path="expenses" element={<RequireRole roles={['admin']}><ExpensesPage /></RequireRole>} />
-        </Route>
-      </Routes>
-    </>
-  );
+ return (
+ <>
+ <Toaster />
+ <Routes>
+ <Route path="/login" element={<LoginPage />} />
+ <Route path="/" element={<RequireAuth><DashboardLayout /></RequireAuth>}>
+ <Route index element={<DashboardHome />} />
+ <Route path="products" element={<ProductsPage />} />
+ <Route path="orders" element={<OrdersPage />} />
+ <Route path="promotions" element={<RequireRole roles={['admin']}><PromotionsPage /></RequireRole>} />
+ <Route path="users" element={<RequireRole roles={['admin']}><UsersPage /></RequireRole>} />
+ <Route path="feedback" element={<FeedbackPage />} />
+ <Route path="stock" element={<RequireRole roles={['admin','employee']}><StockPage /></RequireRole>} />
+ <Route path="purchases" element={<RequireRole roles={['admin','employee']}><PurchasesPage /></RequireRole>} />
+ <Route path="categories" element={<CategoriesPage />} />
+ <Route path="brands" element={<BrandsPage />} />
+ <Route path="subcategories" element={<SubcategoriesPage />} />
+ <Route path="reports/sales" element={<RequireRole roles={['admin']}><SalesReportPage /></RequireRole>} />
+ <Route path="meta/colors-sizes" element={<RequireRole roles={['admin']}><ColorsSizesPage /></RequireRole>} />
+ <Route path="expenses" element={<RequireRole roles={['admin']}><ExpensesPage /></RequireRole>} />
+ <Route path="website/hero-banners" element={<RequireRole roles={['admin']}><HeroBannersPage /></RequireRole>} />
+ </Route>
+ </Routes>
+ </>
+ );
 }

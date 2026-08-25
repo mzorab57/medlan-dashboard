@@ -1,6 +1,8 @@
-import { useEffect, useState, useCallback } from 'react';
-import { api } from '../../lib/api';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { api, API_BASE } from '../../lib/api';
 import { useToast } from '../../store/toast';
+import AdminDrawer from '../../components/ui/AdminDrawer';
+import AdminButton from '../../components/ui/AdminButton';
 
 // ─── Icons ───────────────────────────────────────────────────────
 function IconGift() {
@@ -64,6 +66,15 @@ function IconChevronDown() {
   return (<svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9" /></svg>);
 }
 
+function coverImageUrl(path) {
+  const raw = String(path || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  const base = String(API_BASE || '').replace(/\/+$/, '');
+  const assetBase = base.endsWith('/public') ? base.slice(0, -7) : base;
+  return `${assetBase}/${raw.replace(/^\/+/, '')}`;
+}
+
 export default function PromotionsPage() {
   const { add } = useToast();
 
@@ -81,6 +92,7 @@ export default function PromotionsPage() {
     id: null, name: '', coupon_code: '', description: '', discount_type: 'percentage',
     discount_value: '', usage_limit: '', min_order_amount: 0, display_limit: '',
     extra_pool_limit: '', start_date: '', end_date: '', is_active: 1, priority: 0,
+    cover_image: '', cover_image_file: null, cover_image_preview: '',
   });
 
   const [manageId, setManageId] = useState(null);
@@ -116,6 +128,7 @@ export default function PromotionsPage() {
       id: null, name: '', description: '', discount_type: 'percentage',
       discount_value: '', coupon_code: '', usage_limit: '', min_order_amount: 0,
       display_limit: '', extra_pool_limit: '', start_date: '', end_date: '', is_active: 1, priority: 0,
+      cover_image: '', cover_image_file: null, cover_image_preview: '',
     });
     setModalOpen(true);
   }
@@ -128,8 +141,25 @@ export default function PromotionsPage() {
       usage_limit: p.usage_limit ?? '', min_order_amount: p.min_order_amount ?? 0,
       display_limit: p.display_limit ?? '', extra_pool_limit: p.extra_pool_limit ?? '',
       start_date: p.start_date, end_date: p.end_date, is_active: p.is_active, priority: p.priority || 0,
+      cover_image: p.cover_image || '', cover_image_file: null, cover_image_preview: coverImageUrl(p.cover_image),
     });
     setModalOpen(true);
+  }
+
+  function handleCoverImageSelect(file) {
+    if (!file) {
+      setFormData((prev) => ({ ...prev, cover_image_file: null, cover_image_preview: prev.cover_image ? coverImageUrl(prev.cover_image) : '' }));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setFormData((prev) => ({
+        ...prev,
+        cover_image_file: file,
+        cover_image_preview: String(reader.result || ''),
+      }));
+    };
+    reader.readAsDataURL(file);
   }
 
   async function submitForm(e) {
@@ -150,10 +180,20 @@ export default function PromotionsPage() {
         is_active: Number(formData.is_active), priority: Number(formData.priority),
       };
       if (modalMode === 'create') {
-        await api.post('/api/promotions', payload);
+        const created = await api.post('/api/promotions', payload);
+        if (formData.discount_type === 'campaign' && formData.cover_image_file && created?.id) {
+          const fd = new FormData();
+          fd.append('image', formData.cover_image_file, formData.cover_image_file.name);
+          await api.postForm(`/api/promotions/${created.id}/cover-image`, fd);
+        }
         add('Promotion created', 'success');
       } else {
         await api.patch(`/api/promotions?id=${formData.id}`, payload);
+        if (formData.discount_type === 'campaign' && formData.cover_image_file) {
+          const fd = new FormData();
+          fd.append('image', formData.cover_image_file, formData.cover_image_file.name);
+          await api.postForm(`/api/promotions/${formData.id}/cover-image`, fd);
+        }
         add('Promotion updated', 'success');
       }
       setModalOpen(false);
@@ -232,7 +272,9 @@ export default function PromotionsPage() {
       const dl = isCampaign && promo?.display_limit != null ? Number(promo.display_limit) : 0;
       const ep = isCampaign && promo?.extra_pool_limit != null ? Number(promo.extra_pool_limit) : 0;
       const hl = isCampaign && dl > 0 ? dl + Math.max(0, ep) : null;
-      if (isCampaign && hl != null && (manageData?.items?.length || 0) >= hl) { add('Campaign limit reached', 'error'); return; }
+      const nextProductId = Number(productSpecs.find((it) => Number(it.id) === Number(specId))?.product_id || selectedProduct?.id || 0);
+      const alreadyExists = groupedManageItems.some((group) => Number(group.product_id || 0) === nextProductId && nextProductId > 0);
+      if (isCampaign && hl != null && !alreadyExists && groupedManageItems.length >= hl) { add('Campaign limit reached', 'error'); return; }
       const override = addOverridePrice?.[specId];
       if (isCampaign && (override == null || override === '')) { add('Override price required', 'error'); return; }
       await api.post(`/api/promotions/${manageId}/items`, {
@@ -262,17 +304,52 @@ export default function PromotionsPage() {
     } catch (e) { add(e.message, 'error'); }
   }
 
+  async function toggleRequired(specId, nextValue) {
+    try {
+      await api.patch(`/api/promotions/${manageId}/items?spec_id=${specId}`, {
+        is_required: nextValue ? 1 : 0,
+      });
+      refreshManage();
+      add(nextValue ? 'Marked as required' : 'Marked as optional', 'success');
+    } catch (e) { add(e.message, 'error'); }
+  }
+
   const managePromotion = manageData?.promotion;
   const isCampaignManage = managePromotion?.discount_type === 'campaign';
   const displayLimitManage = isCampaignManage && managePromotion?.display_limit != null ? Number(managePromotion.display_limit) : 0;
   const extraPoolManage = isCampaignManage && managePromotion?.extra_pool_limit != null ? Number(managePromotion.extra_pool_limit) : 0;
-  const hardLimitManage = isCampaignManage && displayLimitManage > 0 ? displayLimitManage + Math.max(0, extraPoolManage) : null;
   const orderedManageItems = (manageData?.items || []).slice().sort((a, b) => Number(a.id || 0) - Number(b.id || 0));
-  const displayItemsManage = isCampaignManage && displayLimitManage > 0 ? orderedManageItems.slice(0, displayLimitManage) : orderedManageItems;
-  const extraItemsManage = isCampaignManage && displayLimitManage > 0 ? orderedManageItems.slice(displayLimitManage, hardLimitManage ?? undefined) : [];
+  const groupedManageItems = useMemo(() => {
+    const groups = [];
+    const indexByKey = new Map();
+    orderedManageItems.forEach((it, index) => {
+      const productId = Number(it.product_id || 0);
+      const key = productId > 0 ? `product:${productId}` : `spec:${it.product_spec_id || index}`;
+      let groupIndex = indexByKey.get(key);
+      if (groupIndex == null) {
+        groupIndex = groups.length;
+        indexByKey.set(key, groupIndex);
+        groups.push({ key, items: [], product_id: productId });
+      }
+      groups[groupIndex].items.push(it);
+    });
+    return groups;
+  }, [orderedManageItems]);
+  const displayGroupsManage = isCampaignManage && displayLimitManage > 0 ? groupedManageItems.slice(0, displayLimitManage) : groupedManageItems;
+  const extraGroupsManage = isCampaignManage && displayLimitManage > 0
+    ? groupedManageItems.slice(displayLimitManage, displayLimitManage + Math.max(0, extraPoolManage))
+    : [];
+  const displayItemsManage = displayGroupsManage.flatMap((group) => group.items);
+  const extraItemsManage = extraGroupsManage.flatMap((group) => group.items);
   const totalCampaignPrice = isCampaignManage && displayLimitManage > 0
-    ? displayItemsManage.reduce((sum, it) => sum + (Number(it.override_price) || 0), 0) : 0;
-  const canAddMoreCampaign = hardLimitManage == null ? true : orderedManageItems.length < hardLimitManage;
+    ? displayGroupsManage.reduce((sum, group) => {
+      const preferred = group.items.find((it) => Number(it.is_required) === 1) || group.items[0];
+      return sum + (Number(preferred?.override_price) || 0);
+    }, 0)
+    : 0;
+  const hardLimitManage = isCampaignManage && displayLimitManage > 0 ? displayLimitManage + Math.max(0, extraPoolManage) : null;
+  const canAddMoreCampaign = hardLimitManage == null ? true : groupedManageItems.length < hardLimitManage;
+  const requiredItemsManageCount = displayGroupsManage.filter((group) => group.items.some((it) => Number(it.is_required) === 1)).length;
 
   const activeCount = items.filter((p) => p.is_active).length;
 
@@ -287,13 +364,18 @@ export default function PromotionsPage() {
   }
 
   // ─── Item Card Component ──────────────────────────────────────
-  function ItemCard({ it, showOverride }) {
+  function ItemCard({ it, showOverride, canToggleRequired = false }) {
     return (
       <div className="group rounded-xl border border-slate-200/60 bg-white p-4 hover:shadow-md hover:shadow-primary/10 hover:border-primary/20 transition-all duration-200">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="font-bold text-sm text-slate-800">{it.product_name}</div>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {Number(it.is_required) === 1 && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/10 font-bold">
+                  Required
+                </span>
+              )}
               {it.color_name && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-50 text-pink-700 border border-pink-200/50 font-medium">
                   {it.color_name}
@@ -308,6 +390,21 @@ export default function PromotionsPage() {
                 Price: <strong>{it.price?.toLocaleString()}</strong>
               </span>
             </div>
+            {canToggleRequired && (
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  onClick={() => toggleRequired(it.product_spec_id, Number(it.is_required) !== 1)}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold shadow-sm transition-all duration-200 ${
+                    Number(it.is_required) === 1
+                      ? 'bg-primary/10 text-primary hover:bg-primary hover:text-white shadow-primary/10'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  <IconCheck />
+                  {Number(it.is_required) === 1 ? 'Required item' : 'Make required'}
+                </button>
+              </div>
+            )}
             {showOverride && (
               <div className="mt-3 flex items-center gap-2">
                 <input
@@ -584,155 +681,266 @@ export default function PromotionsPage() {
           )}
         </div>
 
-        {/* ─── CREATE / EDIT MODAL ────────────────────────────── */}
-        {modalOpen && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-lg"
-            style={{ marginTop: '0px' }}
-            onClick={(e) => e.target === e.currentTarget && !submitting && setModalOpen(false)}
-          >
-            <div className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col ring-1 ring-slate-200/50">
-              {/* Header */}
-              <div className="relative px-7 py-6 border-b border-slate-100 overflow-hidden">
-                <div className={`absolute inset-0 opacity-[0.04] bg-gradient-to-br ${modalMode === 'create' ? 'from-primary to-secondary' : 'from-secondary to-primary'}`} />
-                <div className="relative flex justify-between items-center">
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2.5 rounded-xl bg-gradient-to-br ${modalMode === 'create' ? 'from-primary/10 to-secondary/10 text-primary' : 'from-secondary/10 to-primary/10 text-secondary'}`}>
-                      {modalMode === 'create' ? <IconPlus /> : <IconEdit />}
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-extrabold text-slate-800">
-                        {modalMode === 'create' ? 'New Promotion' : 'Edit Promotion'}
-                      </h3>
-                      <p className="text-xs text-muted mt-0.5">
-                        {modalMode === 'create' ? 'Create a new promotional offer' : `Editing: ${formData.name}`}
-                      </p>
-                    </div>
-                  </div>
-                  <button onClick={() => setModalOpen(false)} className="p-2 rounded-xl hover:bg-slate-100 text-muted hover:text-slate-600 hover:rotate-90 transition-all duration-300">
-                    <IconX />
-                  </button>
-                </div>
+        {/* ─── CREATE / EDIT DRAWER ───────────────────────────── */}
+        <AdminDrawer
+          open={modalOpen}
+          onClose={() => !submitting && setModalOpen(false)}
+          size="lg"
+          eyebrow={modalMode === 'create' ? 'Create Promotion' : 'Update Promotion'}
+          title={modalMode === 'create' ? 'New Promotion' : 'Edit Promotion'}
+          subtitle={modalMode === 'create' ? 'Create a new promotional offer.' : `Editing: ${formData.name || 'Selected promotion'}`}
+          footer={
+            <div className="flex justify-end gap-3">
+              <AdminButton variant="ghost" onClick={() => setModalOpen(false)} disabled={submitting}>
+                Cancel
+              </AdminButton>
+              <AdminButton type="submit" form="promotionForm" variant="primary" disabled={submitting}>
+                {submitting ? 'Saving...' : modalMode === 'create' ? 'Create Promotion' : 'Save Changes'}
+              </AdminButton>
+            </div>
+          }
+        >
+          <form id="promotionForm" onSubmit={submitForm} className="space-y-6">
+            <section className="admin-shell-panel space-y-5 p-5">
+              <div>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Promotion Name <span className="text-red-400">*</span>
+                </label>
+                <input
+                  className="admin-shell-input"
+                  placeholder="e.g. Summer Sale 2025"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  required
+                />
               </div>
 
-              {/* Form */}
-              <form onSubmit={submitForm} className="flex-1 overflow-y-auto p-7 space-y-5">
-                {/* Name */}
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                    Promotion Name <span className="text-red-400">*</span>
-                  </label>
-                  <input className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-300" placeholder="e.g. Summer Sale 2025" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} required />
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Coupon */}
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {formData.discount_type !== 'campaign' ? (
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Coupon Code</label>
-                    <input className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all font-mono placeholder:text-slate-300" placeholder="NEW10" value={formData.coupon_code} onChange={(e) => setFormData({ ...formData, coupon_code: e.target.value })} />
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                      Coupon Code
+                    </label>
+                    <input
+                      className="admin-shell-input font-mono"
+                      placeholder="NEW10"
+                      value={formData.coupon_code}
+                      onChange={(e) => setFormData({ ...formData, coupon_code: e.target.value })}
+                    />
                   </div>
+                ) : null}
 
-                  {/* Type */}
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Discount Type</label>
-                    <div className="relative">
-                      <select className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all appearance-none cursor-pointer" value={formData.discount_type} onChange={(e) => setFormData({ ...formData, discount_type: e.target.value })}>
-                        <option value="percentage">Percentage (%)</option>
-                        <option value="fixed">Fixed Amount</option>
-                        <option value="campaign">Campaign (override)</option>
-                      </select>
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none"><IconChevronDown /></div>
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                    Discount Type
+                  </label>
+                  <div className="relative">
+                    <select
+                      className="admin-shell-input appearance-none pr-10"
+                      value={formData.discount_type}
+                      onChange={(e) => {
+                        const nextType = e.target.value;
+                        setFormData({
+                          ...formData,
+                          discount_type: nextType,
+                          coupon_code: nextType === 'campaign' ? '' : formData.coupon_code,
+                          min_order_amount: nextType === 'campaign' ? 0 : formData.min_order_amount,
+                          cover_image_file: nextType === 'campaign' ? formData.cover_image_file : null,
+                          cover_image_preview: nextType === 'campaign'
+                            ? (formData.cover_image_preview || (formData.cover_image ? coverImageUrl(formData.cover_image) : ''))
+                            : '',
+                        });
+                      }}
+                    >
+                      <option value="percentage">Percentage (%)</option>
+                      <option value="fixed">Fixed Amount</option>
+                      <option value="campaign">Campaign (override)</option>
+                    </select>
+                    <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
+                      <IconChevronDown />
                     </div>
                   </div>
-
-                  {/* Value */}
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Value</label>
-                    <input type="number" step="0.01" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-50 disabled:bg-slate-100" value={formData.discount_type === 'campaign' ? 0 : formData.discount_value} onChange={(e) => setFormData({ ...formData, discount_value: e.target.value })} required={formData.discount_type !== 'campaign'} disabled={formData.discount_type === 'campaign'} />
-                  </div>
-
-                  {/* Usage Limit */}
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Usage Limit</label>
-                    <input type="number" min="0" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-300" placeholder="Unlimited" value={formData.usage_limit} onChange={(e) => setFormData({ ...formData, usage_limit: e.target.value })} />
-                  </div>
-
-                  {/* Campaign Fields */}
-                  {formData.discount_type === 'campaign' && (
-                    <>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Display Limit</label>
-                        <input type="number" min="0" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-300" placeholder="e.g. 10" value={formData.display_limit} onChange={(e) => setFormData({ ...formData, display_limit: e.target.value })} />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Extra Pool</label>
-                        <input type="number" min="0" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-300" placeholder="e.g. 5" value={formData.extra_pool_limit} onChange={(e) => setFormData({ ...formData, extra_pool_limit: e.target.value })} />
-                      </div>
-                    </>
-                  )}
-
-                  {/* Min Order */}
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Min Order Amount</label>
-                    <input type="number" min="0" step="0.01" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={formData.min_order_amount} onChange={(e) => setFormData({ ...formData, min_order_amount: e.target.value })} />
-                  </div>
-
-                  {/* Priority */}
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Priority</label>
-                    <input type="number" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={formData.priority} onChange={(e) => setFormData({ ...formData, priority: e.target.value })} />
-                  </div>
-
-                  {/* Dates */}
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Start Date <span className="text-red-400">*</span></label>
-                    <input type="date" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={formData.start_date} onChange={(e) => setFormData({ ...formData, start_date: e.target.value })} required />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">End Date <span className="text-red-400">*</span></label>
-                    <input type="date" className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all" value={formData.end_date} onChange={(e) => setFormData({ ...formData, end_date: e.target.value })} required />
-                  </div>
                 </div>
 
-                {/* Description */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Description</label>
-                  <input className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm bg-white outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-slate-300" placeholder="Optional description..." value={formData.description} onChange={(e) => setFormData({ ...formData, description: e.target.value })} />
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                    Value
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="admin-shell-input disabled:cursor-not-allowed disabled:opacity-50"
+                    value={formData.discount_type === 'campaign' ? 0 : formData.discount_value}
+                    onChange={(e) => setFormData({ ...formData, discount_value: e.target.value })}
+                    required={formData.discount_type !== 'campaign'}
+                    disabled={formData.discount_type === 'campaign'}
+                  />
                 </div>
 
-                {/* Active Toggle */}
-                <div className="rounded-xl border border-slate-200 p-4 bg-slate-50/50">
-                  <label className="relative inline-flex items-center gap-3 cursor-pointer group">
-                    <div className="relative">
-                      <input type="checkbox" className="sr-only peer" checked={!!formData.is_active} onChange={(e) => setFormData({ ...formData, is_active: e.target.checked ? 1 : 0 })} />
-                      <div className="w-11 h-6 bg-slate-200 rounded-full peer peer-checked:after:translate-x-5 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:shadow-sm after:transition-all peer-checked:bg-gradient-to-r peer-checked:from-accent peer-checked:to-emerald-500 transition-colors duration-300" />
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                    Usage Limit
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    className="admin-shell-input"
+                    placeholder="Unlimited"
+                    value={formData.usage_limit}
+                    onChange={(e) => setFormData({ ...formData, usage_limit: e.target.value })}
+                  />
+                </div>
+
+                {formData.discount_type === 'campaign' ? (
+                  <>
+                    <div className="sm:col-span-2">
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                        Cover Image
+                      </label>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                        <div className="flex flex-col gap-4 md:flex-row md:items-center">
+                          <div className="h-32 w-full overflow-hidden rounded-2xl border border-slate-200 bg-white md:w-56">
+                            {formData.cover_image_preview ? (
+                              <img src={formData.cover_image_preview} alt="" className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-slate-100 to-slate-50 text-slate-300">
+                                <IconPackage />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold text-slate-700">Website cover for campaign cards</p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              This image will appear on the homepage campaign section and on the campaign detail page.
+                            </p>
+                            <label className="mt-4 inline-flex cursor-pointer items-center gap-2 rounded-2xl border border-primary/15 bg-white px-4 py-2.5 text-sm font-semibold text-primary shadow-sm transition hover:border-primary/30 hover:bg-primary/5">
+                              <IconPlus />
+                              <span>{formData.cover_image_preview ? 'Change Cover Image' : 'Choose Cover Image'}</span>
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                className="hidden"
+                                onChange={(e) => handleCoverImageSelect(e.target.files?.[0])}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                     <div>
-                      <span className="text-sm font-bold text-slate-700">{formData.is_active ? 'Active' : 'Inactive'}</span>
-                      <p className="text-[10px] text-muted">Available to customers when active</p>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                        Display Products
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        className="admin-shell-input"
+                        placeholder="e.g. 5 products"
+                        value={formData.display_limit}
+                        onChange={(e) => setFormData({ ...formData, display_limit: e.target.value })}
+                      />
                     </div>
+                    <div>
+                      <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                        Extra Products
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        className="admin-shell-input"
+                        placeholder="e.g. 2 products"
+                        value={formData.extra_pool_limit}
+                        onChange={(e) => setFormData({ ...formData, extra_pool_limit: e.target.value })}
+                      />
+                    </div>
+                  </>
+                ) : null}
+
+                {formData.discount_type !== 'campaign' ? (
+                  <div>
+                    <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                      Min Order Amount
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="admin-shell-input"
+                      value={formData.min_order_amount}
+                      onChange={(e) => setFormData({ ...formData, min_order_amount: e.target.value })}
+                    />
+                  </div>
+                ) : null}
+
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                    Priority
                   </label>
+                  <input
+                    type="number"
+                    className="admin-shell-input"
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                  />
                 </div>
 
-                {/* Submit */}
-                <div className="flex justify-end gap-3 pt-5 border-t border-slate-100">
-                  <button type="button" onClick={() => setModalOpen(false)} disabled={submitting} className="px-5 py-2.5 rounded-xl text-sm font-semibold text-muted hover:bg-slate-100 transition-all disabled:opacity-50">Cancel</button>
-                  <button disabled={submitting} type="submit" className="relative px-7 py-2.5 rounded-xl bg-gradient-to-r from-primary to-secondary text-white text-sm font-bold shadow-xl shadow-primary/25 hover:shadow-2xl hover:shadow-primary/35 hover:-translate-y-0.5 active:translate-y-0 transition-all duration-200 disabled:opacity-60 overflow-hidden group">
-                    <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/20 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700" />
-                    <span className="relative">
-                      {submitting ? (
-                        <span className="flex items-center gap-2">
-                          <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                          Saving...
-                        </span>
-                      ) : modalMode === 'create' ? 'Create Promotion' : 'Save Changes'}
-                    </span>
-                  </button>
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                    Start Date <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    className="admin-shell-input"
+                    value={formData.start_date}
+                    onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                    required
+                  />
                 </div>
-              </form>
-            </div>
-          </div>
-        )}
+
+                <div>
+                  <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                    End Date <span className="text-red-400">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    className="admin-shell-input"
+                    value={formData.end_date}
+                    onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                    required
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="admin-shell-panel space-y-5 p-5">
+              <div>
+                <label className="mb-2 block text-xs font-semibold uppercase tracking-[0.22em] text-slate-400">
+                  Description
+                </label>
+                <textarea
+                  className="admin-shell-input min-h-[90px] resize-y"
+                  placeholder="Optional description..."
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                />
+              </div>
+
+              <div className="rounded-2xl border border-slate-800 bg-slate-950/60 p-4">
+                <label className="flex items-center justify-between gap-4 text-sm text-slate-300">
+                  <div>
+                    <div className="font-semibold text-white">{formData.is_active ? 'Active' : 'Inactive'}</div>
+                    <p className="mt-1 text-xs text-slate-400">Available to customers when active</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={!!formData.is_active}
+                    onChange={(e) => setFormData({ ...formData, is_active: e.target.checked ? 1 : 0 })}
+                  />
+                </label>
+              </div>
+            </section>
+          </form>
+        </AdminDrawer>
 
         {/* ─── MANAGE ITEMS MODAL ─────────────────────────────── */}
         {manageId && (
@@ -758,13 +966,16 @@ export default function PromotionsPage() {
                           <>
                             <span className="text-xs text-slate-300">•</span>
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold">
-                              Display: {Math.min(displayItemsManage.length, displayLimitManage)}/{displayLimitManage}
+                              Display: {Math.min(displayGroupsManage.length, displayLimitManage)}/{displayLimitManage}
                             </span>
                             {extraPoolManage > 0 && (
                               <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-bold">
-                                Extra: {extraItemsManage.length}/{extraPoolManage}
+                                Extra: {extraGroupsManage.length}/{extraPoolManage}
                               </span>
                             )}
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/10 text-secondary font-bold">
+                              Required: {requiredItemsManageCount}
+                            </span>
                             <span className="text-[10px] px-2 py-0.5 rounded-full bg-accent/10 text-accent font-bold">
                               Total: {Number(totalCampaignPrice).toLocaleString()} IQD
                             </span>
@@ -794,8 +1005,8 @@ export default function PromotionsPage() {
                       <div>
                         <div className="flex items-center gap-2 mb-3 sticky top-0 bg-white z-10 pb-2">
                           <div className="p-1 rounded-lg bg-primary/10 text-primary"><IconGift /></div>
-                          <span className="text-sm font-bold text-slate-700">Display Items</span>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold">{displayItemsManage.length}/{displayLimitManage}</span>
+                          <span className="text-sm font-bold text-slate-700">Display Products</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold">{displayGroupsManage.length}/{displayLimitManage}</span>
                         </div>
                         {displayItemsManage.length === 0 ? (
                           <div className="text-center py-10 text-muted bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
@@ -804,7 +1015,7 @@ export default function PromotionsPage() {
                           </div>
                         ) : (
                           <div className="space-y-2">
-                            {displayItemsManage.map((it) => <ItemCard key={it.id || it.product_spec_id} it={it} showOverride />)}
+                            {displayItemsManage.map((it) => <ItemCard key={it.id || it.product_spec_id} it={it} showOverride canToggleRequired />)}
                           </div>
                         )}
                       </div>
@@ -814,8 +1025,8 @@ export default function PromotionsPage() {
                         <div>
                           <div className="flex items-center gap-2 mb-3 sticky top-0 bg-white z-10 pb-2">
                             <div className="p-1 rounded-lg bg-amber-100 text-amber-600"><IconStar /></div>
-                            <span className="text-sm font-bold text-slate-700">Extra Pool</span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-bold">{extraItemsManage.length}/{extraPoolManage}</span>
+                            <span className="text-sm font-bold text-slate-700">Extra Products</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 font-bold">{extraGroupsManage.length}/{extraPoolManage}</span>
                           </div>
                           {extraItemsManage.length === 0 ? (
                             <div className="text-center py-8 text-muted bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
