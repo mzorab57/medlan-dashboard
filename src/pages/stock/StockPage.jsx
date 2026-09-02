@@ -100,14 +100,20 @@ function reasonBadgeClass(tone) {
 }
 
 export default function StockPage() {
- const { add } = useToast();
- const { user } = useAuth();
- const navigate = useNavigate();
- 
- const [loading, setLoading] = useState(false);
- const [items, setItems] = useState([]);
- 
- const [productSearch, setProductSearch] = useState('');
+  const { add } = useToast();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user?.role && user.role !== "admin") {
+      navigate("/", { replace: true });
+    }
+  }, [user, navigate]);
+  
+  const [loading, setLoading] = useState(false);
+  const [items, setItems] = useState([]);
+  
+  const [productSearch, setProductSearch] = useState('');
  const [productResults, setProductResults] = useState([]);
  const [productLoading, setProductLoading] = useState(false);
  const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -127,27 +133,27 @@ export default function StockPage() {
  
  const specsReqId = useRef(0);
 
- useEffect(() => {
- (async () => {
- try {
- const [cRes, sRes] = await Promise.all([
- api.get('/api/colors'),
- api.get('/api/sizes')
- ]);
- setColors(cRes.data || cRes);
- setSizes(sRes.data || sRes);
- } catch { /* ignore */ }
- })();
+  useEffect(() => {
+    (async () => {
+      try {
+        const [cRes, sRes] = await Promise.all([
+          api.get('/api/colors'),
+          api.get('/api/sizes')
+        ]);
+        setColors(cRes.data || cRes);
+        setSizes(sRes.data || sRes);
+      } catch { /* ignore */ }
+    })();
 
- const pid = localStorage.getItem('stock_product_id');
- const pname = localStorage.getItem('stock_product_name');
- const sid = localStorage.getItem('stock_spec_id');
- if (pid && pname) {
- setSelectedProduct({ id: pid, name: pname });
- setProductSearch(pname);
- fetchSpecs(pid, sid);
- }
- }, []);
+    const pid = localStorage.getItem('stock_product_id');
+    const pname = localStorage.getItem('stock_product_name');
+    const sid = localStorage.getItem('stock_spec_id');
+    if (pid && pname) {
+      setSelectedProduct({ id: pid, name: pname });
+      setProductSearch(pname);
+      fetchSpecs(pid, sid);
+    }
+  }, []);
 
  useEffect(() => {
  const t = setTimeout(async () => {

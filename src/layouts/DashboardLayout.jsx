@@ -71,9 +71,9 @@ export default function DashboardLayout() {
     {
       label: "Operations",
       items: [
-        { to: "/stock", label: "Stock", roles: ["admin", "employee"] },
+        { to: "/stock", label: "Stock", roles: ["admin"] },
         { to: "/purchases", label: "Purchases", roles: ["admin", "employee"] },
-        { to: "/feedback", label: "Feedback" },
+        { to: "/feedback", label: "Feedback", roles: ["admin"] },
       ],
     },
     {

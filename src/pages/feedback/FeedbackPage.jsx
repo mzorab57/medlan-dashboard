@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { useToast } from '../../store/toast';
+import { useAuth } from '../../store/auth';
 
 // ─── Icons ───────────────────────────────────────────────────────
 function IconStar({ filled }) {
@@ -33,7 +35,15 @@ function IconSend() {
 }
 
 export default function FeedbackPage() {
- const { add } = useToast();
+  const { add } = useToast();
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (user?.role && user.role !== "admin") {
+      navigate("/", { replace: true });
+    }
+  }, [user, navigate]);
  
  const [selectedProduct, setSelectedProduct] = useState(null);
  const [items, setItems] = useState([]);
