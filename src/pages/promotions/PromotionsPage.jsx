@@ -4,6 +4,15 @@ import { useToast } from '../../store/toast';
 import AdminDrawer from '../../components/ui/AdminDrawer';
 import AdminButton from '../../components/ui/AdminButton';
 
+const ASSET_BASE = API_BASE.endsWith('/public') ? API_BASE.replace(/\/public$/, '') : `${API_BASE}/api`;
+function assetUrl(p) {
+  const raw = String(p || '').trim();
+  if (!raw) return '';
+  if (/^(https?:)?\/\//i.test(raw) || /^data:/i.test(raw)) return raw;
+  const rel = raw.replace(/^\/+/, '');
+  return `${ASSET_BASE}/${rel}`;
+}
+
 // ─── Icons ───────────────────────────────────────────────────────
 function IconGift() {
   return (<svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 12 20 22 4 22 4 12" /><rect x="2" y="7" width="20" height="5" /><line x1="12" y1="22" x2="12" y2="7" /><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" /><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" /></svg>);
@@ -98,14 +107,34 @@ export default function PromotionsPage() {
   const [manageId, setManageId] = useState(null);
   const [manageData, setManageData] = useState(null);
   const [manageLoading, setManageLoading] = useState(false);
-  const [overrideEdits, setOverrideEdits] = useState({});
-  const [addOverridePrice, setAddOverridePrice] = useState({});
-
   const [specSearch, setSpecSearch] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [productSpecs, setProductSpecs] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [createCategoryId, setCreateCategoryId] = useState("");
+  const [createSubcategoryId, setCreateSubcategoryId] = useState("");
+  const [createSubcategories, setCreateSubcategories] = useState([]);
+  const [overrideEdits, setOverrideEdits] = useState({});
+  const [addOverridePrice, setAddOverridePrice] = useState({});
+
+  useEffect(() => {
+    api.get("/api/categories?per_page=200").then((res) => {
+      setCategories(Array.isArray(res) ? res : res.data || []);
+    }).catch(() => setCategories([]));
+  }, []);
+
+  useEffect(() => {
+    if (!manageId || !createCategoryId) {
+      setCreateSubcategories([]);
+      setCreateSubcategoryId("");
+      return;
+    }
+    api.get(`/api/subcategories?category_id=${createCategoryId}&per_page=200`).then((res) => {
+      setCreateSubcategories(Array.isArray(res) ? res : res.data || []);
+    }).catch(() => setCreateSubcategories([]));
+  }, [createCategoryId, manageId]);
 
   const fetchList = useCallback(async () => {
     setLoading(true);
@@ -246,16 +275,23 @@ export default function PromotionsPage() {
 
   useEffect(() => {
     const t = setTimeout(async () => {
-      if (!specSearch.trim()) { setSearchResults([]); return; }
+      if (!manageId) { setSearchResults([]); return; }
+      if (!specSearch.trim() && !createCategoryId && !createSubcategoryId) { setSearchResults([]); return; }
       setSearchLoading(true);
       try {
-        const res = await api.get(`/api/products?search=${specSearch}&per_page=5`);
+        const params = new URLSearchParams();
+        params.set("per_page", "200");
+        if (specSearch.trim()) params.set("search", specSearch.trim());
+        if (createCategoryId) params.set("category_id", String(createCategoryId));
+        if (createSubcategoryId) params.set("subcategory_id", String(createSubcategoryId));
+
+        const res = await api.get(`/api/products?${params.toString()}`);
         setSearchResults(res.data || res || []);
       } catch { setSearchResults([]); }
       finally { setSearchLoading(false); }
     }, 400);
     return () => clearTimeout(t);
-  }, [specSearch]);
+  }, [specSearch, createCategoryId, createSubcategoryId, manageId]);
 
   async function selectProductForSpecs(prod) {
     setSelectedProduct(prod);
@@ -368,8 +404,16 @@ export default function PromotionsPage() {
     return (
       <div className="group rounded-xl border border-slate-200/60 bg-white p-4 hover:shadow-md hover:shadow-primary/10 hover:border-primary/20 transition-all duration-200">
         <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <div className="font-bold text-sm text-slate-800">{it.product_name}</div>
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            {it.image ? (
+              <img src={assetUrl(it.image)} className="w-10 h-10 rounded-lg object-cover bg-slate-50 border border-slate-200 shrink-0" alt="" />
+            ) : (
+              <div className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-200 flex items-center justify-center shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <div className="font-bold text-sm text-slate-800">{it.product_name}</div>
             <div className="flex items-center gap-2 mt-1 flex-wrap">
               {Number(it.is_required) === 1 && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/10 font-bold">
@@ -423,6 +467,7 @@ export default function PromotionsPage() {
                 </button>
               </div>
             )}
+          </div>
           </div>
           <button
             onClick={() => removeItem(it.product_spec_id || it.id)}
@@ -1089,6 +1134,65 @@ export default function PromotionsPage() {
                     />
                   </div>
 
+                  <div className="mt-4 space-y-3 mb-6">
+                    <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                      {categories.map((category) => (
+                        <button
+                          key={category.id}
+                          type="button"
+                          onClick={() => {
+                            if (String(createCategoryId) === String(category.id)) {
+                              setCreateCategoryId("");
+                              setCreateSubcategoryId("");
+                              setSelectedProduct(null);
+                              setSearchResults([]);
+                            } else {
+                              setCreateCategoryId(category.id);
+                              setCreateSubcategoryId("");
+                              setSelectedProduct(null);
+                              setSearchResults([]);
+                            }
+                          }}
+                          className={`whitespace-nowrap px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                            String(createCategoryId) === String(category.id)
+                              ? "bg-[#4BB7D8] text-white shadow-md shadow-[#4BB7D8]/20"
+                              : "border border-[#4BB7D8]/20 bg-[#4BB7D8]/5 text-[#4BB7D8] hover:bg-[#4BB7D8]/10"
+                          }`}
+                        >
+                          {category.name}
+                        </button>
+                      ))}
+                    </div>
+                    {createCategoryId && createSubcategories.length > 0 && (
+                      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                        {createSubcategories.map((subcategory) => (
+                          <button
+                            key={subcategory.id}
+                            type="button"
+                            onClick={() => {
+                              if (String(createSubcategoryId) === String(subcategory.id)) {
+                                setCreateSubcategoryId("");
+                                setSelectedProduct(null);
+                                setSearchResults([]);
+                              } else {
+                                setCreateSubcategoryId(subcategory.id);
+                                setSelectedProduct(null);
+                                setSearchResults([]);
+                              }
+                            }}
+                            className={`whitespace-nowrap px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
+                              String(createSubcategoryId) === String(subcategory.id)
+                                ? "bg-[#4BB7D8] text-white shadow-md shadow-[#4BB7D8]/20"
+                                : "border border-[#4BB7D8]/20 bg-[#4BB7D8]/5 text-[#4BB7D8] hover:bg-[#4BB7D8]/10"
+                            }`}
+                          >
+                            {subcategory.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="space-y-2">
                     {searchLoading && (
                       <div className="text-center py-4">
@@ -1103,8 +1207,17 @@ export default function PromotionsPage() {
                         className="flex items-center justify-between p-3.5 bg-white rounded-xl border border-slate-200/60 cursor-pointer hover:border-primary/30 hover:shadow-md hover:shadow-primary/10 transition-all duration-200 group"
                         onClick={() => selectProductForSpecs(pr)}
                       >
-                        <span className="text-sm font-semibold text-slate-700 group-hover:text-primary transition-colors">{pr.name}</span>
-                        <div className="flex items-center gap-1 text-xs text-primary font-medium">
+                        <div className="flex items-center gap-3">
+                          {(pr.primary_image || pr.image || pr.thumbnail) ? (
+                            <img src={assetUrl(pr.primary_image || pr.image || pr.thumbnail)} className="w-10 h-10 rounded-lg object-cover bg-slate-50 border border-slate-200 shrink-0" alt="" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-lg bg-slate-50 border border-dashed border-slate-200 flex items-center justify-center shrink-0">
+                              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+                            </div>
+                          )}
+                          <span className="text-sm font-semibold text-slate-700 group-hover:text-primary transition-colors">{pr.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-xs text-primary font-medium shrink-0 ml-2">
                           View Specs <IconArrowRight />
                         </div>
                       </div>
@@ -1131,7 +1244,15 @@ export default function PromotionsPage() {
                               const isAdded = manageData?.items?.some((i) => (i.product_spec_id || i.id) === sp.id);
                               return (
                                 <div key={sp.id} className="flex items-center justify-between p-3.5 bg-white rounded-xl border border-slate-200/60 hover:shadow-sm transition-all">
-                                  <div>
+                                  <div className="flex items-center gap-3">
+                                    {sp.image ? (
+                                      <img src={assetUrl(sp.image)} className="w-8 h-8 rounded object-cover bg-slate-50 border border-slate-200 shrink-0" alt="" />
+                                    ) : (
+                                      <div className="w-8 h-8 rounded bg-slate-50 border border-dashed border-slate-200 flex items-center justify-center shrink-0">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-slate-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" /></svg>
+                                      </div>
+                                    )}
+                                  <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
                                       {sp.color_name && (
                                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-50 text-pink-700 border border-pink-200/50 font-medium">{sp.color_name}</span>
@@ -1143,6 +1264,7 @@ export default function PromotionsPage() {
                                     <div className="text-[10px] text-muted mt-1">
                                       Stock: <strong>{sp.stock}</strong> • Price: <strong>{Number(sp.price).toLocaleString()}</strong>
                                     </div>
+                                  </div>
                                   </div>
                                   {isAdded ? (
                                     <span className="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-full bg-accent/10 text-accent font-bold">

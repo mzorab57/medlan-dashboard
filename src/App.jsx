@@ -40,9 +40,9 @@ export default function App() {
  <Route path="brands" element={<BrandsPage />} />
  <Route path="subcategories" element={<SubcategoriesPage />} />
  <Route path="reports/sales" element={<RequireRole roles={['admin']}><SalesReportPage /></RequireRole>} />
- <Route path="meta/colors-sizes" element={<RequireRole roles={['admin']}><ColorsSizesPage /></RequireRole>} />
+ <Route path="meta/colors-sizes" element={<RequireRole roles={['admin','employee']}><ColorsSizesPage /></RequireRole>} />
  <Route path="expenses" element={<RequireRole roles={['admin']}><ExpensesPage /></RequireRole>} />
- <Route path="website/hero-banners" element={<RequireRole roles={['admin']}><HeroBannersPage /></RequireRole>} />
+ <Route path="website/hero-banners" element={<RequireRole roles={['admin','employee']}><HeroBannersPage /></RequireRole>} />
  </Route>
  </Routes>
  </>

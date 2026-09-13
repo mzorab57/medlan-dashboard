@@ -378,6 +378,7 @@ export default function ProductVariantsManager({
     size_id: "",
     gender: "",
     is_active: 1,
+    sort_order: 0,
   });
 
   const { add } = useToast();
@@ -582,6 +583,7 @@ export default function ProductVariantsManager({
       color_id: form.color_id ? Number(form.color_id) : undefined,
       size_id: form.size_id ? Number(form.size_id) : undefined,
       is_active: Number(form.is_active),
+      sort_order: Number(form.sort_order || 0),
     };
     try {
       const resp = await api.post(`/api/products/${productId}/specs`, payload);
@@ -622,6 +624,7 @@ export default function ProductVariantsManager({
         size_id: "",
         gender: "",
         is_active: 1,
+        sort_order: 0,
       });
       setCreateImageFile(null);
       setShowCreateForm(false);
@@ -663,9 +666,10 @@ export default function ProductVariantsManager({
     if (isAdmin && r.purchase_price != null && String(r.purchase_price) !== "")
       patch.purchase_price = Number(r.purchase_price);
     if (r.gender !== undefined) patch.gender = r.gender;
-    if (r.color_id) patch.color_id = Number(r.color_id);
-    if (r.size_id) patch.size_id = Number(r.size_id);
+    patch.color_id = r.color_id ? Number(r.color_id) : null;
+    patch.size_id = r.size_id ? Number(r.size_id) : null;
     patch.is_active = Number(r.is_active ? 1 : 0);
+    if (r.sort_order !== undefined) patch.sort_order = Number(r.sort_order || 0);
     try {
       await api.patch(`/api/specs?id=${r.id}`, patch);
       if (onReload) await onReload();
@@ -902,6 +906,18 @@ export default function ProductVariantsManager({
                   }
                 />
               </div>
+              <div className="w-full sm:w-32">
+                <label className="block text-[10px] font-bold text-[#1F2A5A]/50 uppercase tracking-wider mb-1">
+                  Sort Order
+                </label>
+                <input
+                  type="number"
+                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 transition-all"
+                  value={form.sort_order}
+                  onChange={(e) => updateForm("sort_order", e.target.value)}
+                  placeholder="0"
+                />
+              </div>
 
               <label className="relative inline-flex items-center gap-3 cursor-pointer pb-1">
                 <div className="relative">
@@ -1076,7 +1092,7 @@ export default function ProductVariantsManager({
                   <div className="border-t border-slate-100 bg-gradient-to-b from-slate-50/50 to-white">
                     {/* Edit Fields */}
                     <div className="px-5 py-5 space-y-4">
-                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+                      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
                         <div>
                           <label className="block text-[10px] font-bold text-[#1F2A5A]/50 uppercase tracking-wider mb-1">
                             SKU
@@ -1231,6 +1247,25 @@ export default function ProductVariantsManager({
                               </option>
                             ))}
                           </select>
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-[#1F2A5A]/50 uppercase tracking-wider mb-1">
+                            Sort Order
+                          </label>
+                          <input
+                            className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm bg-white outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-400 font-mono"
+                            type="number"
+                            value={r.sort_order ?? 0}
+                            onChange={(e) =>
+                              setRows((s) =>
+                                s.map((x) =>
+                                  x.id === r.id
+                                    ? { ...x, sort_order: e.target.value }
+                                    : x,
+                                ),
+                              )
+                            }
+                          />
                         </div>
                       </div>
 

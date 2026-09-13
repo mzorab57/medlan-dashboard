@@ -247,6 +247,7 @@ export default function PurchasesPage() {
   const [viewLoading, setViewLoading] = useState(false);
   const [viewData, setViewData] = useState(null);
   const [receiving, setReceiving] = useState(false);
+  const [showReceiveConfirm, setShowReceiveConfirm] = useState(false);
   const [statusDraft, setStatusDraft] = useState("");
   const [statusSaving, setStatusSaving] = useState(false);
   const [itemDraftById, setItemDraftById] = useState({});
@@ -1244,13 +1245,24 @@ export default function PurchasesPage() {
                           className="p-4 rounded-xl border border-[#1F2A5A]/10 flex flex-col gap-3 bg-white hover:border-[#4BB7D8]/30 hover:shadow-[0_4px_12px_-4px_rgba(75,183,216,0.15)] transition-all duration-300 group"
                         >
                           <div className="flex justify-between items-start gap-2">
-                            <div>
-                              <div className="text-[13px] font-medium text-slate-700 group-hover:text-[#4BB7D8] transition-colors leading-tight">
-                                {v.color_name} • {v.size_name}
-                              </div>
-                              <div className="text-[10px] text-slate-400 font-mono mt-1.5 flex items-center gap-1.5">
-                                <span className="w-1 h-1 rounded-full bg-slate-300 group-hover:bg-[#4BB7D8] transition-colors" />
-                                {v.sku_variant || v.sku || "—"}
+                            <div className="flex gap-3 items-center">
+                              {v.image ? (
+                                <img
+                                  src={`${ASSET_BASE}/${v.image}`}
+                                  className="w-10 h-10 rounded-lg object-cover border border-[#1F2A5A]/10 bg-slate-50"
+                                  alt=""
+                                />
+                              ) : (
+                                <div className="w-10 h-10 rounded-lg bg-slate-100 border border-[#1F2A5A]/10" />
+                              )}
+                              <div>
+                                <div className="text-[13px] font-medium text-slate-700 group-hover:text-[#4BB7D8] transition-colors leading-tight">
+                                  {v.color_name} • {v.size_name}
+                                </div>
+                                <div className="text-[10px] text-slate-400 font-mono mt-1.5 flex items-center gap-1.5">
+                                  <span className="w-1 h-1 rounded-full bg-slate-300 group-hover:bg-[#4BB7D8] transition-colors" />
+                                  {v.sku_variant || v.sku || "—"}
+                                </div>
                               </div>
                             </div>
                             <div className="flex flex-col items-end bg-[#4BB7D8]/5 px-2 py-1 rounded-lg border border-[#4BB7D8]/10 group-hover:bg-[#4BB7D8]/10 transition-colors">
@@ -1315,11 +1327,11 @@ export default function PurchasesPage() {
         {viewId && (
           <div
             style={{ marginTop: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-lg"
+            className="fixed inset-0 z-50 overflow-x-auto flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-lg"
             onClick={(e) => e.target === e.currentTarget && setViewId(null)}
           >
-            <div className="bg-white rounded-3xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden ring-1 ring-slate-200/50">
-              <div className="px-8 py-6 border-b mt-0 border-slate-100 flex justify-between items-center bg-slate-50/30">
+            <div className="bg-white overflow-x-auto rounded-3xl w-full max-w-4xl h-[90vh] flex flex-col overflow-hidden ring-1 ring-slate-200/50">
+              <div className="px-8 py-6 overflow-x-auto border-b mt-0 border-slate-100 flex justify-between items-center bg-slate-50/30">
                 <div className="relative">
                   <h3 className="text-xl font-extrabold text-slate-800">
                     Purchase #{viewId}
@@ -1536,8 +1548,8 @@ export default function PurchasesPage() {
                     })()}
 
                     {/* Items Table */}
-                    <div className="rounded-2xl border border-slate-200 overflow-hidden">
-                      <table className="w-full text-sm">
+                    <div className="rounded-2xl border border-slate-200 overflow-x-auto">
+                      <table className="w-full text-sm min-w-[500px]">
                         <thead className="bg-slate-50 text-[#1F2A5A]/50 font-bold text-[10px] uppercase tracking-wider">
                           <tr>
                             <th className="px-6 py-3 text-left">Product</th>
@@ -1567,11 +1579,24 @@ export default function PurchasesPage() {
                                 className="hover:bg-primary/5 transition-colors"
                               >
                                 <td className="px-6 py-4">
-                                  <div className="font-bold text-slate-800">
-                                    {it.product_name}
-                                  </div>
-                                  <div className="text-xs text-muted">
-                                    {it.color_name} / {it.size_name}
+                                  <div className="flex items-center gap-3">
+                                    {it.image ? (
+                                      <img
+                                        src={`${ASSET_BASE}/${it.image}`}
+                                        className="w-10 h-10 rounded-lg object-cover border border-[#1F2A5A]/10 bg-slate-50 flex-shrink-0"
+                                        alt=""
+                                      />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-lg bg-slate-100 border border-[#1F2A5A]/10 flex-shrink-0" />
+                                    )}
+                                    <div>
+                                      <div className="font-bold text-slate-800">
+                                        {it.product_name}
+                                      </div>
+                                      <div className="text-xs text-muted">
+                                        {it.color_name} / {it.size_name}
+                                      </div>
+                                    </div>
                                   </div>
                                 </td>
                                 <td className="px-6 py-4 text-center">
@@ -1825,7 +1850,7 @@ export default function PurchasesPage() {
                     String(viewData?.purchase?.status || "").toLowerCase(),
                   ) ? (
                     <button
-                      onClick={receiveAll}
+                      onClick={() => setShowReceiveConfirm(true)}
                       disabled={receiving}
                       className="px-8 py-3 bg-emerald-500 text-[#1F2A5A] rounded-xl text-sm font-bold hover:-translate-y-0.5 hover:shadow-lg hover:shadow-emerald-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
                     >
@@ -1848,6 +1873,48 @@ export default function PurchasesPage() {
           </div>
         )}
       </div>
+
+      {/* Confirmation Modal */}
+      {showReceiveConfirm && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div 
+            className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" 
+            onClick={() => setShowReceiveConfirm(false)} 
+          />
+          <div className="relative bg-white rounded-3xl shadow-[0_20px_40px_-15px_rgba(0,0,0,0.2)] w-full max-w-sm overflow-hidden animate-in fade-in zoom-in-95 duration-200 border border-slate-100">
+            <div className="p-8 text-center">
+              <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-5 text-emerald-500 shadow-sm border border-emerald-100/50">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              </div>
+              <h3 className="text-2xl font-black text-[#1F2A5A] mb-3">Receive Stock?</h3>
+              <p className="text-[14px] leading-relaxed text-slate-500 mb-8 px-2">
+                Are you sure you want to receive these items? This action will instantly update all product stock levels.
+              </p>
+              <div className="flex items-center gap-3 w-full">
+                <button
+                  onClick={() => setShowReceiveConfirm(false)}
+                  className="flex-1 py-3.5 bg-slate-100 text-slate-600 font-bold rounded-2xl hover:bg-slate-200 hover:text-slate-800 transition-colors"
+                >
+                  No
+                </button>
+                <button
+                  onClick={() => {
+                    setShowReceiveConfirm(false);
+                    receiveAll();
+                  }}
+                  className="flex-1 py-3.5 bg-emerald-500 text-white font-bold rounded-2xl hover:bg-emerald-600 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-emerald-500/30 transition-all"
+                >
+                  Yes, Receive
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

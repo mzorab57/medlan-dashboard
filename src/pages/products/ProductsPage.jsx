@@ -23,8 +23,11 @@ const INITIAL_FORM_STATE = {
   purchase_price: "",
   short_description: "",
   long_description: "",
+  engraving_enabled: 0,
+  engraving_price: "",
   is_active: 1,
   is_featured: 0,
+  sort_order: 0,
 };
 
 function normalizeIdList(values) {
@@ -206,6 +209,23 @@ function IconImage() {
     </svg>
   );
 }
+function IconVideo() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      className="w-5 h-5"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <polygon points="23 7 16 12 23 17 23 7" />
+      <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+    </svg>
+  );
+}
 function IconChevronLeft() {
   return (
     <svg
@@ -305,6 +325,8 @@ export default function ProductsPage() {
   const [viewData, setViewData] = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [videoUploading, setVideoUploading] = useState(false);
+  const [videoRemoving, setVideoRemoving] = useState(false);
   const [activeViewTab, setActiveViewTab] = useState("variants");
 
   useEffect(() => {
@@ -487,8 +509,11 @@ export default function ProductsPage() {
         purchase_price: prod?.purchase_price ?? product.purchase_price,
         short_description: prod?.short_description ?? "",
         long_description: prod?.long_description ?? "",
+        engraving_enabled: prod?.engraving_enabled ? 1 : 0,
+        engraving_price: prod?.engraving_price ?? "",
         is_active: prod?.is_active ? 1 : 0,
         is_featured: prod?.is_featured ? 1 : 0,
+        sort_order: prod?.sort_order ?? 0,
       });
       setModalOpen(true);
     } catch (e) {
@@ -517,8 +542,13 @@ export default function ProductsPage() {
       purchase_price: isAdmin ? Number(formData.purchase_price) : undefined,
       short_description: formData.short_description || undefined,
       long_description: formData.long_description || undefined,
+      engraving_enabled: Number(formData.engraving_enabled),
+      engraving_price: formData.engraving_enabled
+        ? Number(formData.engraving_price || 0)
+        : 0,
       is_active: Number(formData.is_active),
       is_featured: Number(formData.is_featured),
+      sort_order: Number(formData.sort_order || 0),
     };
     try {
       if (modalMode === "create") {
@@ -589,6 +619,43 @@ export default function ProductsPage() {
       setViewData(res);
     } catch (e) {
       add(e.message, "error");
+    }
+  }
+
+  async function handleVideoUpload(e) {
+    e.preventDefault();
+    if (!viewId) return;
+    const form = e.target;
+    const file = form.video.files[0];
+    if (!file) return;
+    setVideoUploading(true);
+    const fd = new FormData();
+    fd.append("video", file);
+    try {
+      await api.postForm(`/api/products/${viewId}/video`, fd);
+      add("Video uploaded", "success");
+      const res = await api.get(`/api/products?id=${viewId}`);
+      setViewData(res);
+      form.reset();
+    } catch (e) {
+      add(e.message, "error");
+    } finally {
+      setVideoUploading(false);
+    }
+  }
+
+  async function deleteVideo() {
+    if (!viewId) return;
+    setVideoRemoving(true);
+    try {
+      await api.del(`/api/products/${viewId}/video`);
+      add("Video removed", "success");
+      const res = await api.get(`/api/products?id=${viewId}`);
+      setViewData(res);
+    } catch (e) {
+      add(e.message, "error");
+    } finally {
+      setVideoRemoving(false);
     }
   }
 
@@ -1353,6 +1420,78 @@ export default function ProductsPage() {
               />
             </div>
 
+            <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:col-span-2">
+              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div className="min-w-0">
+                  <label className="block text-xs font-semibold text-[#1F2A5A]/50 uppercase tracking-wide mb-1.5">
+                    Engraving Service
+                  </label>
+                  <p className="text-sm text-[#1F2A5A]/55">
+                    Enable this if MedLan can write the customer name on this product.
+                  </p>
+                </div>
+                <label className="relative inline-flex items-center gap-3 cursor-pointer group">
+                  <div className="relative">
+                    <input
+                      type="checkbox"
+                      className="sr-only peer"
+                      checked={!!formData.engraving_enabled}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          engraving_enabled: e.target.checked ? 1 : 0,
+                          engraving_price: e.target.checked
+                            ? formData.engraving_price
+                            : "",
+                        })
+                      }
+                    />
+                    <div className="w-10 h-6 bg-slate-200 peer-focus:ring-2 peer-focus:ring-blue-500/20 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-slate-900 peer-checked:after:border-slate-900 transition-colors" />
+                  </div>
+                  <span className="text-sm font-medium text-[#1F2A5A]/70 group-hover:text-slate-800 transition-colors">
+                    {formData.engraving_enabled ? "Enabled" : "Disabled"}
+                  </span>
+                </label>
+              </div>
+
+              <div className="mt-4 max-w-xs">
+                <label className="block text-xs font-semibold text-[#1F2A5A]/50 uppercase tracking-wide mb-1.5">
+                  Engraving Price
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="admin-shell-input"
+                  value={formData.engraving_price}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      engraving_price: e.target.value,
+                    })
+                  }
+                  placeholder="0.00"
+                  disabled={!formData.engraving_enabled}
+                />
+              </div>
+            </div>
+
+            {/* Sort Order */}
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wide text-[#1F2A5A]/50 mb-1.5">
+                Sort Order
+              </label>
+              <input
+                type="number"
+                className="admin-shell-input"
+                value={formData.sort_order}
+                onChange={(e) =>
+                  setFormData({ ...formData, sort_order: Number(e.target.value) })
+                }
+                placeholder="0"
+              />
+            </div>
+
             {/* Toggles */}
             <div className="flex gap-6 pt-2">
               <label className="relative inline-flex items-center gap-3 cursor-pointer group">
@@ -1427,7 +1566,7 @@ export default function ProductsPage() {
                 {[
                   // { id: 'details', label: 'Details', icon: <IconPackage /> },
                   { id: "variants", label: "Variants", icon: <IconPlus /> },
-                  { id: "images", label: "Images", icon: <IconImage /> },
+                  { id: "images", label: "Media", icon: <IconVideo /> },
                 ].map((tab) => (
                   <button
                     key={tab.id}
@@ -1569,6 +1708,89 @@ export default function ProductsPage() {
                   {/* ─── Images Tab ──────────────────────────── */}
                   {activeViewTab === "images" && (
                     <div className="space-y-6">
+                      <div className="rounded-2xl border border-slate-200 bg-white p-5 space-y-4">
+                        <div className="flex items-center gap-2">
+                          <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-600">
+                            <IconVideo />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-[#1F2A5A]/70">
+                              Product Video
+                            </p>
+                            <p className="text-xs text-[#1F2A5A]/50">
+                              Upload one video per product. Best result: MP4 or WebM.
+                            </p>
+                          </div>
+                        </div>
+
+                        {viewData.product?.video ? (
+                          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_220px] gap-4">
+                            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
+                              <video
+                                src={`${ASSET_BASE}/${viewData.product.video}`}
+                                controls
+                                playsInline
+                                preload="metadata"
+                                className="w-full aspect-video object-cover"
+                              />
+                            </div>
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 flex flex-col justify-between gap-3">
+                              <div>
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-[#1F2A5A]/50">
+                                  Current Video
+                                </p>
+                                <p className="mt-2 text-xs text-[#1F2A5A]/60 break-all">
+                                  {viewData.product.video}
+                                </p>
+                              </div>
+                              <AdminButton
+                                type="button"
+                                variant="danger"
+                                onClick={deleteVideo}
+                                disabled={videoRemoving}
+                              >
+                                {videoRemoving ? "Removing..." : "Remove Video"}
+                              </AdminButton>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center">
+                            <p className="text-sm font-medium text-[#1F2A5A]/60">
+                              No product video yet
+                            </p>
+                            <p className="text-xs text-[#1F2A5A]/45 mt-1">
+                              You can upload one below and it will appear on the website product page.
+                            </p>
+                          </div>
+                        )}
+
+                        <form onSubmit={handleVideoUpload} className="space-y-4">
+                          <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_auto] gap-3 items-end">
+                            <div>
+                              <label className="text-xs text-[#1F2A5A]/50 font-semibold mb-1 block uppercase tracking-wide">
+                                Video File
+                              </label>
+                              <input
+                                type="file"
+                                name="video"
+                                accept="video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v"
+                                className="w-full text-sm border border-slate-200 rounded-xl bg-white p-2 file:mr-4 file:py-1.5 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-indigo-600 hover:file:bg-indigo-100 cursor-pointer"
+                                required
+                              />
+                            </div>
+                            <div className="flex justify-end">
+                              <AdminButton
+                                type="submit"
+                                leftIcon={<IconUpload />}
+                                disabled={videoUploading}
+                              >
+                                {videoUploading ? "Uploading..." : "Upload Video"}
+                              </AdminButton>
+                            </div>
+                          </div>
+                        </form>
+                      </div>
+
                       {/* Image Grid */}
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {(viewData.images || []).map((img) => (
