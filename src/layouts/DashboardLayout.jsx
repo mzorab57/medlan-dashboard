@@ -80,7 +80,7 @@ export default function DashboardLayout() {
       label: "Management",
       items: [
         { to: "/promotions", label: "Promotions", roles: ["admin"] },
-        { to: "/website/hero-banners", label: "Hero Banners", roles: ["admin"] },
+        { to: "/website/hero-banners", label: "Hero Banners", roles: ["admin", "employee"] },
         { to: "/users", label: "Users", roles: ["admin"] },
         { to: "/reports/sales", label: "Sales Report", roles: ["admin"] },
         { to: "/expenses", label: "Expenses", roles: ["admin"] },
